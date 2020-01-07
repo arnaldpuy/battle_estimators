@@ -351,30 +351,19 @@ function_list <- list(
   Inverse = function(x) (10 - 1 / 1.1) ^ -1 * (x + 0.1) ^ - 1
 )
 
-metafunction <- function(mat) {
-  all_functions <- names(function_list)
-  tests <- sample(all_functions, 6)
-  # 3 Coefficients from a Gaussian mixture
-  components <- sample(1:3, prob = c(0.3, 0.5, 0.2), size = N, replace = TRUE)
-  mus <- c(0, 10, 3)
-  sds <- sqrt(c(1, 1, 0.1))
-  coefficients <- sample(rnorm(N) * sds[components] + mus[components], 3)
-  # Compute metafunction
-  output <- vector()
-  for(i in 1:nrow(mat)) {
-    # First order
-    output[[i]] <- sum(coefficients[[1]] * function_list[[tests[[1]]]](mat[i, ])) + 
-      # Second order
-      sum(coefficients[[2]] * function_list[[tests[[2]]]](mat[i, seq_len(2)]) * 
-            function_list[[tests[[3]]]](mat[i, seq_len(2)])) + 
-      # Third order
-      sum(coefficients[[3]] * function_list[[tests[[4]]]](mat[i, seq_len(3)]) * 
-            function_list[[tests[[5]]]](mat[i, seq_len(3)]) * 
-            function_list[[tests[[6]]]](mat[i, seq_len(3)]))
-  }
-  final <- list(coefficients, tests, output)
-  names(final) <- c("coefficients", "functions", "output")
-  return(final)
+metafunction <- function(k, n, coef1, coef2, coef3, f1, f2, f3, f4, f5, f6) {
+  mt <- sobol_matrices(N = n, params = paste("X", 1:k, sep = ""), matrices = matrices)
+  out <- vector()
+  for(i in 1:nrow(mt))
+    out[[i]] <- sum(coef1 * function_list[[f1]](mt[i, ])) + 
+    # Second order
+    sum(coef2 * function_list[[f2]](mt[i, seq_len(2)]) * 
+          function_list[[f3]](mt[i, seq_len(2)])) + 
+    # Third order
+    sum(coef3 * function_list[[f4]](mt[i, seq_len(3)]) * 
+          function_list[[f5]](mt[i, seq_len(3)]) * 
+          function_list[[f6]](mt[i, seq_len(3)]))
+  return(out)
 }
 
 # PLOT METAFUNCTION -----------------------------------------------------------
@@ -386,28 +375,44 @@ ggplot(data.frame(x = runif(100)), aes(x)) +
                   aes_(color = factor(names(function_list[nn])), 
                        linetype = factor(names(function_list[nn]))))
   }) + 
-  labs(color= "Function", linetype = "Function") +
+  labs(color= "Function", linetype = "Function", 
+       x = expression(italic(x)), 
+       y = expression(italic(y))) +
   theme_AP()
 
-# CREATE SAMPLE MATRIX --------------------------------------------------------
+# DEFINE SETTINGS -------------------------------------------------------------
 
 N <- 500
 R <- 100 # Number of bootstrap replicas for Sobol' indices
-params <- c("k", "N") # Dimension and initial sample size
+coefficients <- paste("coef", 1:3, sep = "")
+funs <- paste("f", 1:6, sep = "")
+params <- c("k", "n", coefficients, funs) 
 matrices <- c("A", "B", "AB", "BA")
-mat <- randtoolbox::sobol(N, length(params))
-mat[, 1] <- floor(qunif(mat[, 1], 3, 100))
-mat[, 2] <- floor(qunif(mat[, 2], 100, 1000))
-colnames(mat) <- params
 
-# CREATE MODEL ----------------------------------------------------------------
 
-model_battle <- function(k, N) {
-  mt <- sobol_matrices(N = N, params = paste("X", 1:k, sep = ""), 
-                       matrices = matrices)
-  out <- metafunction(mt)
-  return(out)
-}
+# CREATE SAMPLE MATRIX --------------------------------------------------------
+
+mat <- data.table(randtoolbox::sobol(N, length(params)))
+setnames(mat, paste("V", 1:length(params), sep = ""), params)
+
+mat[, k:= floor(qunif(k, 3, 100))][
+  , n:= floor(qunif(n, 100, 1000))][
+  , coef1:= qnorm(coef1, 0, 1)][
+  , coef2:= qnorm(coef2, 10, 1)][
+  , coef3:= qnorm(coef3, 3, 0.1)]
+
+mat[, (funs):= lapply(.SD, function(x) floor(x * (9 - 1 + 1)) + 1), .SDcols = (funs)]
+mat[, (funs):= lapply(.SD, function(x) ifelse(x == 1, names(function_list)[[1]],
+                                              ifelse(x == 2, names(function_list)[[2]], 
+                                                     ifelse(x == 3, names(function_list)[[3]], 
+                                                            ifelse(x == 4, names(function_list)[[4]], 
+                                                                   ifelse(x == 5, names(function_list)[[5]], 
+                                                                          ifelse(x == 6, names(function_list)[[6]], 
+                                                                                 ifelse(x == 7, names(function_list)[[7]], 
+                                                                                        ifelse(x == 8, names(function_list)[[8]], names(function_list)[[9]]))))))))), 
+    .SDcols = (funs)]
+
+df <- data.frame(mat[, N:= 10000])
 
 # RUN MODEL -------------------------------------------------------------------
 
@@ -418,15 +423,41 @@ n_cores <- floor(detectCores() * 0.75)
 cl <- makeCluster(n_cores)
 registerDoParallel(cl)
 
-# Compute
-Y <- foreach(i=1:nrow(mat), 
-             .packages = "Rfast") %dopar%
+# Compute 
+Y <- foreach(i=1:nrow(df)) %dopar%
   {
-    model_battle(N = mat[[i, "N"]],
-                 k = mat[[i, "k"]])
+    metafunction(k = df[[i, "k"]], 
+                 n = df[[i, "n"]], 
+                 coef1 = df[[i, "coef1"]], 
+                 coef2 = df[[i, "coef2"]], 
+                 coef3 = df[[i, "coef3"]], 
+                 f1 = df[[i, "f1"]], 
+                 f2 = df[[i, "f2"]], 
+                 f3 = df[[i, "f3"]], 
+                 f4 = df[[i, "f4"]], 
+                 f5 = df[[i, "f5"]], 
+                 f6 = df[[i, "f6"]])
   }
+
+# Compute true ranks
+Y.true <- foreach(i=1:nrow(df)) %dopar%
+  {
+    metafunction(k = df[[i, "k"]], 
+                 n = df[[i, "N"]], 
+                 coef1 = df[[i, "coef1"]], 
+                 coef2 = df[[i, "coef2"]], 
+                 coef3 = df[[i, "coef3"]], 
+                 f1 = df[[i, "f1"]], 
+                 f2 = df[[i, "f2"]], 
+                 f3 = df[[i, "f3"]], 
+                 f4 = df[[i, "f4"]], 
+                 f5 = df[[i, "f5"]], 
+                 f6 = df[[i, "f6"]])
+  }
+
 # Stop parallel cluster
 stopCluster(cl)
+
 
 # # EXTRACT OUTPUT ------------------------------------------------------------
 
@@ -442,35 +473,185 @@ estimators_AB <- c("jansen", "sobol", "homma")
 
 # Extract output
 A_B_AB <- A_AB_BA <- list()
-for(i in 1:nrow(mat)) {
+for(i in 1:nrow(df)) {
   # A, B and AB matrices
-  A_B_AB[[i]] <- Y[[i]]$output[1:(mat[i, "N"] * (mat[i, "k"] + 2))]
-  # A, AB and BA matrices
-  A_AB_BA[[i]] <- Y[[i]]$output[c(1:mat[i, "N"], 
-                                  (2 * mat[i, "N"] + 1):length(Y[[i]]$output))]
+  A_B_AB[[i]] <- Y[[i]][1:(df[i, "n"] * (df[i, "k"] + 2))]
 }
+
+
+which(do.call(rbind, lapply(A_B_AB, function(x) all(x == 0))))
+
+
+
 
 # COMPUTE SOBOL' INDICES ------------------------------------------------------
 
 ind.jansen.sobol.homma <- ind.monod <- ind.azzini <- list()
-for(i in 1:nrow(mat)) {
+for(i in 1:nrow(df)) {
   ind.jansen.sobol.homma[[i]] <- lapply(estimators_AB, function(x) 
     sobol_indices(A_B_AB[[i]], 
-                  N = mat[i, "N"], 
-                  params = paste("X", 1:mat[i, "k"], sep = ""), 
+                  N = df[i, "n"], 
+                  params = paste("X", 1:df[i, "k"], sep = ""), 
                   total = x,
                   R = R, 
                   parallel = "multicore", 
                   ncpus = n_cores))
-  ind.azzini[[i]] <- sobol_indices(Y[[i]]$output, 
-                                   N = mat[i, "N"], 
-                                   params = paste("X", 1:mat[i, "k"], sep = ""), 
+}
+
+
+da <- sobol_indices(Y = Y[[1]], N = 550, params = paste("X", 1:51, sep = ""), R = R)
+
+plot_sobol(da)
+
+  ind.azzini[[i]] <- sobol_indices(Y[[i]], 
+                                   N = df[i, "n"], 
+                                   params = paste("X", 1:df[i, "k"], sep = ""), 
                                    first = "azzini", 
                                    total = "azzini", 
                                    R = R, 
                                    parallel = "multicore", 
                                    ncpus = n_cores)
 }
+
+
+# COMPUTE TRUE RANKINGS--------------------------------------------------------
+
+df1 <- data.frame(do.call(rbind, lapply(Y, function(x) x$coefficients)))
+colnames(df1) <- c("coef1", "coef2", "coef3")
+df2 <- data.frame(do.call(rbind, lapply(Y, function(x) x$functions)))
+colnames(df2) <- paste("f", 1:6, sep = "")
+
+df <- cbind(mat, df1, df2)
+
+# CREATE FUNCTION -------------------------------------------------------------
+
+model_battle_trueranks <- function(k, n, coef1, coef2, coef3, 
+                                   f1, f2, f3, f4, f5, f6) {
+  mt <- sobol_matrices(N = n, params = paste("X", 1:k, sep = ""), matrices = matrices)
+  out <- vector()
+  for(i in 1:nrow(mt))
+  out[[i]] <- sum(coef1 * function_list[[f1]](mt[i, ])) + 
+    # Second order
+    sum(coef2 * function_list[[f2]](mt[i, seq_len(2)]) * 
+          function_list[[f3]](mt[i, seq_len(2)])) + 
+    # Third order
+    sum(coef3 * function_list[[f4]](mt[i, seq_len(3)]) * 
+          function_list[[f5]](mt[i, seq_len(3)]) * 
+          function_list[[f6]](mt[i, seq_len(3)]))
+  return(out)
+}
+
+# RUN MODEL -------------------------------------------------------------------
+
+# Set number of cores at 75%
+n_cores <- floor(detectCores() * 0.75)
+
+# Define parallel computing
+cl <- makeCluster(n_cores)
+registerDoParallel(cl)
+
+# Compute
+Y.trueranks <- foreach(i=1:nrow(df)) %dopar%
+  {
+    model_battle_trueranks(k = df[[i, "k"]], 
+                           n = df[[i, "n"]], 
+                           coef1 = df[[i, "coef1"]], 
+                           coef2 = df[[i, "coef2"]], 
+                           coef3 = df[[i, "coef3"]], 
+                           f1 = df[[i, "f1"]], 
+                           f2 = df[[i, "f2"]], 
+                           f3 = df[[i, "f3"]], 
+                           f4 = df[[i, "f4"]], 
+                           f5 = df[[i, "f5"]], 
+                           f6 = df[[i, "f6"]])
+  }
+# Stop parallel cluster
+stopCluster(cl)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+da <- list()
+for(i in 1:nrow(prove)) {
+  da[[i]] <- model_battle_trueranks(k = prove[i, "k"], 
+                               N = prove[i, "N"], 
+                               coef1 = prove[i, "coef1"], 
+                               coef2 = prove[i, "coef2"], 
+                               coef3 = prove[i, "coef3"], 
+                               f1 = prove[i, "f1"], 
+                               f2 = prove[i, "f2"], 
+                               f3 = prove[i, "f3"], 
+                               f4 = prove[i, "f4"], 
+                               f5 = prove[i, "f5"], 
+                               f6 = prove[i, "f6"])
+}
+
+
+function_list[["Exponential"]]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+plot_sobol(ind.jansen.sobol.homma[[499]][[3]])
+
+
+
+
+
+
+
 
 
 
@@ -1038,9 +1219,5 @@ AB <- X[(2 * 249 + 1):nrow(X), ]
 
 
 mat <- sobol_matrices(N = 249, params = paste("X", 1:2, sep = ""))
-
-
-
-rm(list = ls())
 
 
