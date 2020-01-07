@@ -346,7 +346,6 @@ function_list <- list(
   Exponential = function(x) exp(1) ^ x / (exp(1) - 1),
   Periodic = function(x) sin(2 * pi * x) / 2,
   Discontinuous = function(x) ifelse(x > 0.5, 1, 0),
-  No.effect = function(x) x * 0,
   Non.monotonic = function(x) 4 * (x - 0.5) ^ 2,
   Inverse = function(x) (10 - 1 / 1.1) ^ -1 * (x + 0.1) ^ - 1
 )
@@ -354,16 +353,15 @@ function_list <- list(
 metafunction <- function(k, n, coef1, coef2, coef3, f1, f2, f3, f4, f5, f6) {
   mt <- sobol_matrices(N = n, params = paste("X", 1:k, sep = ""), matrices = matrices)
   out <- vector()
-  for(i in 1:nrow(mt))
-    out[[i]] <- sum(coef1 * function_list[[f1]](mt[i, ])) + 
+    output <- Rfast::rowsums(coef1 * function_list[[f1]](mt)) + 
     # Second order
-    sum(coef2 * function_list[[f2]](mt[i, seq_len(2)]) * 
-          function_list[[f3]](mt[i, seq_len(2)])) + 
+    Rfast::rowsums(coef2 * function_list[[f2]](mt[, seq_len(2)]) * 
+          function_list[[f3]](mt[, seq_len(2)])) + 
     # Third order
-    sum(coef3 * function_list[[f4]](mt[i, seq_len(3)]) * 
-          function_list[[f5]](mt[i, seq_len(3)]) * 
-          function_list[[f6]](mt[i, seq_len(3)]))
-  return(out)
+    Rfast::rowsums(coef3 * function_list[[f4]](mt[, seq_len(3)]) * 
+          function_list[[f5]](mt[, seq_len(3)]) * 
+          function_list[[f6]](mt[, seq_len(3)]))
+  return(output)
 }
 
 # PLOT METAFUNCTION -----------------------------------------------------------
@@ -382,7 +380,7 @@ ggplot(data.frame(x = runif(100)), aes(x)) +
 
 # DEFINE SETTINGS -------------------------------------------------------------
 
-N <- 500
+N <- 50
 R <- 100 # Number of bootstrap replicas for Sobol' indices
 coefficients <- paste("coef", 1:3, sep = "")
 funs <- paste("f", 1:6, sep = "")
@@ -401,18 +399,19 @@ mat[, k:= floor(qunif(k, 3, 100))][
   , coef2:= qnorm(coef2, 10, 1)][
   , coef3:= qnorm(coef3, 3, 0.1)]
 
-mat[, (funs):= lapply(.SD, function(x) floor(x * (9 - 1 + 1)) + 1), .SDcols = (funs)]
+mat[, (funs):= lapply(.SD, function(x) floor(x * (8 - 1 + 1)) + 1), .SDcols = (funs)]
 mat[, (funs):= lapply(.SD, function(x) ifelse(x == 1, names(function_list)[[1]],
                                               ifelse(x == 2, names(function_list)[[2]], 
                                                      ifelse(x == 3, names(function_list)[[3]], 
                                                             ifelse(x == 4, names(function_list)[[4]], 
                                                                    ifelse(x == 5, names(function_list)[[5]], 
                                                                           ifelse(x == 6, names(function_list)[[6]], 
-                                                                                 ifelse(x == 7, names(function_list)[[7]], 
-                                                                                        ifelse(x == 8, names(function_list)[[8]], names(function_list)[[9]]))))))))), 
+                                                                                 ifelse(x == 7, names(function_list)[[7]], names(function_list)[[8]])))))))), 
     .SDcols = (funs)]
 
 df <- data.frame(mat[, N:= 10000])
+
+df
 
 # RUN MODEL -------------------------------------------------------------------
 
@@ -458,6 +457,7 @@ Y.true <- foreach(i=1:nrow(df)) %dopar%
 # Stop parallel cluster
 stopCluster(cl)
 
+str(Y.true)
 
 # # EXTRACT OUTPUT ------------------------------------------------------------
 
@@ -472,24 +472,21 @@ estimators_AB <- c("jansen", "sobol", "homma")
 ## azzini/rosati: A, B, AB, BA.
 
 # Extract output
-A_B_AB <- A_AB_BA <- list()
+jansen <- monod <- list()
 for(i in 1:nrow(df)) {
   # A, B and AB matrices
-  A_B_AB[[i]] <- Y[[i]][1:(df[i, "n"] * (df[i, "k"] + 2))]
+  jansen[[i]] <- Y[[i]][1:(df[i, "n"] * (df[i, "k"] + 2))]
 }
 
 
 which(do.call(rbind, lapply(A_B_AB, function(x) all(x == 0))))
-
-
-
 
 # COMPUTE SOBOL' INDICES ------------------------------------------------------
 
 ind.jansen.sobol.homma <- ind.monod <- ind.azzini <- list()
 for(i in 1:nrow(df)) {
   ind.jansen.sobol.homma[[i]] <- lapply(estimators_AB, function(x) 
-    sobol_indices(A_B_AB[[i]], 
+    sobol_indices(Y[[i]][1:(df[i, "n"] * (df[i, "k"] + 2))], # Extract A, B, AB matrices, 
                   N = df[i, "n"], 
                   params = paste("X", 1:df[i, "k"], sep = ""), 
                   total = x,
@@ -497,6 +494,17 @@ for(i in 1:nrow(df)) {
                   parallel = "multicore", 
                   ncpus = n_cores))
 }
+
+
+
+
+
+
+
+
+
+
+
 
 
 da <- sobol_indices(Y = Y[[1]], N = 550, params = paste("X", 1:51, sep = ""), R = R)
