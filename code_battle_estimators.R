@@ -435,30 +435,37 @@ metafunction <- function(k, n, N, coef1, coef2, coef3, f1, f2, f3, f4, f5, f6) {
   # Compute Sobol' indices
   for(i in estimators) {
     if(i == "jansen" | i == "sobol" | i == "homma") {
-      y <- output[[1]][1:(n * (k + 2))]
-      Y <- output[[2]][1:(N * (k + 2))]
       first <- "saltelli"
+      ind[[i]] <- lapply(list(output[[1]][1:(n * (k + 2))], 
+                              output[[2]][1:(N * (k + 2))]), 
+                         function(x) sobol_indices(Y = x, 
+                                                   N = length(x) / (k + 2), 
+                                                   params = paste("X", 1:k, sep = ""), 
+                                                   first = first, 
+                                                   total = i,
+                                                   R = 5, 
+                                                   parallel = "multicore", 
+                                                   ncpus = n_cores) )
     } else if(i == "monod") {
-      y <- output[[1]][c(1:n, (2 * n + 1):length(output[[1]]))]
-      Y <- output[[2]][c(1:N, (2 * N + 1):length(output[[2]]))]
       first <- "monod"
-    } else {
-      y <- output[[1]]
-      Y <- output[[2]]
-      first <- "azzini"
+      ind[[i]] <- lapply(list(output[[1]][-c((n+1):(2*n))], 
+                              output[[2]][-c((N+1):(2*N))]), 
+                         function(x) sobol_indices(Y = x, N = length(x) / (1 + 2 * k), 
+                                                   params = paste("X", 1:k, sep = ""), 
+                                                   first = first, 
+                                                   total = i,
+                                                   R = 5, 
+                                                   parallel = "multicore", 
+                                                   ncpus = n_cores) )
+
+    } else if(i == "azzini") {
+      next
     }
-      ind[[i]] <- lapply(list(y, Y), function(x) 
-        sobol_indices(Y = x, 
-                      N = length(x) / (k + 2), 
-                      params = paste("X", 1:k, sep = ""), 
-                      first = first, 
-                      total = i,
-                      R = 5, 
-                      parallel = "multicore", 
-                      ncpus = n_cores) )
   }
   return(ind)
 }
+
+sobol_matrices(N = 10, params = c("X", "Y", "Z"), matrices = c("A", "AB", "BA"))
 
 # PLOT METAFUNCTION -----------------------------------------------------------
 
@@ -507,8 +514,6 @@ mat[, (funs):= lapply(.SD, function(x) ifelse(x == 1, names(function_list)[[1]],
 
 df <- data.frame(mat[, N:= 10000])
 
-df
-
 # RUN MODEL -------------------------------------------------------------------
 
 # Set number of cores at 75%
@@ -539,7 +544,16 @@ Y <- foreach(i=1:nrow(df)) %dopar%
 stopCluster(cl)
 
 
-Y[[1]]
+
+
+
+
+
+
+
+
+
+
 
 
 
