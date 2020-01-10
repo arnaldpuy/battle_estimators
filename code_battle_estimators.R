@@ -107,8 +107,8 @@ sobol_boot <- function(d, i, N, params, R, first, total, order) {
     Y_A <- m[, 1]
     Y_B <- m[, 2]
     Y_AB <- m[, -c(1, 2)]
-    f0 <- 1 / N * sum(m[, 1])
-    VY <- 1 / N * sum((m[, 1] - f0) ^ 2)
+    f0 <- 1 / (2 * N) * sum(Y_A + Y_B)
+    VY <- 1 / (2 * N - 1) * sum((Y_A - f0) ^ 2 + (Y_B - f0) ^ 2)
   } else if(first == "monod" & total == "monod") {
     Y_A <- m[, 1]
     Y_AB <- m[, 2:(2 + k - 1)]
@@ -343,7 +343,7 @@ plot_sobol <- function(indices, dummy = NULL, order = "first") {
 # Settings
 estimators <- c("jansen", "sobol", "homma", "azzini", "monod")
 test_functions <- c("Ishigami", "Sobol'G", "Morris")
-N <- R <- 500
+N <- R <- 2^10
 
 # Run model
 ind <- Y <- mt <- list() 
@@ -414,58 +414,45 @@ function_list <- list(
   Inverse = function(x) (10 - 1 / 1.1) ^ -1 * (x + 0.1) ^ - 1
 )
 
-metafunction <- function(k, n, N, coef1, coef2, coef3, f1, f2, f3, f4, f5, f6) {
-  ## random sample size
-  mt1 <- sobol_matrices(N = n, params = paste("X", 1:k, sep = ""), matrices = matrices)
-  ## sample size of N=10000
-  mt2 <- sobol_matrices(N = N, params = paste("X", 1:k, sep = ""), matrices = matrices)
-  ## Compute metafunction
-  output <- lapply(list(mt1, mt2), function(x) 
-    # First order
-    Rfast::rowsums(coef1 * function_list[[f1]](x)) + 
-    # Second order
-    Rfast::rowsums(coef2 * function_list[[f2]](x[, seq_len(2)]) * 
-          function_list[[f3]](x[, seq_len(2)])) + 
-    # Third order
-    Rfast::rowsums(coef3 * function_list[[f4]](x[, seq_len(3)]) * 
-          function_list[[f5]](x[, seq_len(3)]) * 
-          function_list[[f6]](x[, seq_len(3)])))
-  estimators <- c("jansen", "sobol", "homma", "azzini", "monod")
-  ind <- Ind <- list()
-  # Compute Sobol' indices
-  for(i in estimators) {
-    if(i == "jansen" | i == "sobol" | i == "homma") {
-      first <- "saltelli"
-      ind[[i]] <- lapply(list(output[[1]][1:(n * (k + 2))], 
-                              output[[2]][1:(N * (k + 2))]), 
-                         function(x) sobol_indices(Y = x, 
-                                                   N = length(x) / (k + 2), 
-                                                   params = paste("X", 1:k, sep = ""), 
-                                                   first = first, 
-                                                   total = i,
-                                                   R = 5, 
-                                                   parallel = "multicore", 
-                                                   ncpus = n_cores) )
-    } else if(i == "monod") {
-      first <- "monod"
-      ind[[i]] <- lapply(list(output[[1]][-c((n+1):(2*n))], 
-                              output[[2]][-c((N+1):(2*N))]), 
-                         function(x) sobol_indices(Y = x, N = length(x) / (1 + 2 * k), 
-                                                   params = paste("X", 1:k, sep = ""), 
-                                                   first = first, 
-                                                   total = i,
-                                                   R = 5, 
-                                                   parallel = "multicore", 
-                                                   ncpus = n_cores) )
-
-    } else if(i == "azzini") {
-      next
-    }
-  }
-  return(ind)
+metafunction <- function(X) {
+  k <- ncol(X)
+  # Define functions according to k
+  all_functions <- sample(names(function_list), k, replace = TRUE)
+  
+  # Define coefficients
+  components <- sample(1:2, prob = c(0.5, 0.5), size = 100, replace = TRUE)
+  mus <- c(0, 0)
+  sds <- sqrt(c(0.5, 5))
+  coefficients <- rnorm(100) * sds[components] + mus[components]
+  
+  # Coefficients for first
+  coefD1 <- sample(coefficients, k)
+  
+  # Coefficients for pairs
+  d2 <- t(utils::combn(1:k, 2))
+  d2M <- d2[sample(nrow(d2), size = ceiling(k * 0.5), replace = FALSE), ]
+  coefD2 <- sample(coefficients, nrow(d2M), replace = TRUE)
+  
+  # Coefficients for triplets
+  d3 <- t(utils::combn(1:k, 3))
+  d3M <- d3[sample(nrow(d3), size = ceiling(k * 0.2), replace = FALSE), ]
+  coefD3 <- sample(coefficients, nrow(d3M), replace = TRUE)
+  
+  # Run sampled functions in each column
+  out <- lapply(seq_along(all_functions), function(x) function_list[[all_functions[x]]](X[, x]))
+  output <- do.call(cbind, out)
+  
+  y1 <- Rfast::rowsums(output * rep(coefD1, rep.int(nrow(output), ncol(output))))
+  
+  tmp2 <- output[, d2M[, 1]] *  output[, d2M[, 2]]
+  y2 <- Rfast::rowsums(tmp2 * rep(coefD2, rep.int(nrow(tmp2), ncol(tmp2))))
+  
+  tmp3 <- output[, d3M[, 1]] *  output[, d3M[, 2]] *  output[, d3M[, 3]]
+  y3 <- Rfast::rowsums(tmp3 * rep(coefD3, rep.int(nrow(tmp3), ncol(tmp3))))
+  
+  Y <- y1 + y2 + y3
+  return(Y)
 }
-
-sobol_matrices(N = 10, params = c("X", "Y", "Z"), matrices = c("A", "AB", "BA"))
 
 # PLOT METAFUNCTION -----------------------------------------------------------
 
@@ -481,38 +468,81 @@ ggplot(data.frame(x = runif(100)), aes(x)) +
        y = expression(italic(y))) +
   theme_AP()
 
+# SAVAGE SCORES ---------------------------------------------------------------
+
+savage_scores <- function(x) {
+  true.ranks <- rank(-x)
+  p <- sort(1 / true.ranks)
+  mat <- matrix(rep(p, length(p)), nrow = length(p), byrow = TRUE)
+  mat[upper.tri(mat)] <- 0
+  out <- sort(rowSums(mat), decreasing = TRUE)[true.ranks]
+  return(out)
+}
+
 # DEFINE SETTINGS -------------------------------------------------------------
 
-N <- 5
-R <- 100 # Number of bootstrap replicas for Sobol' indices
-coefficients <- paste("coef", 1:3, sep = "")
-funs <- paste("f", 1:6, sep = "")
-params <- c("k", "n", coefficients, funs) 
+N <- 200
+R <- 10 # Number of bootstrap replicas for Sobol' indices
+params <- c("k", "n") 
+full.N <- 3000
 matrices <- c("A", "B", "AB", "BA")
-
 
 # CREATE SAMPLE MATRIX --------------------------------------------------------
 
-mat <- data.table(randtoolbox::sobol(N, length(params)))
-setnames(mat, paste("V", 1:length(params), sep = ""), params)
+mat <- randtoolbox::sobol(N, length(params))
+mat[, 1] <- floor(qunif(mat[, 1], 8, 100))
+mat[, 2] <- floor(qunif(mat[, 2], 5, 1000))
+colnames(mat) <- params
 
-mat[, k:= floor(qunif(k, 3, 100))][
-  , n:= floor(qunif(n, 100, 1000))][
-  , coef1:= qnorm(coef1, 0, 1)][
-  , coef2:= qnorm(coef2, 10, 1)][
-  , coef3:= qnorm(coef3, 3, 0.1)]
+# DEFINE MODEL ----------------------------------------------------------------
 
-mat[, (funs):= lapply(.SD, function(x) floor(x * (8 - 1 + 1)) + 1), .SDcols = (funs)]
-mat[, (funs):= lapply(.SD, function(x) ifelse(x == 1, names(function_list)[[1]],
-                                              ifelse(x == 2, names(function_list)[[2]], 
-                                                     ifelse(x == 3, names(function_list)[[3]], 
-                                                            ifelse(x == 4, names(function_list)[[4]], 
-                                                                   ifelse(x == 5, names(function_list)[[5]], 
-                                                                          ifelse(x == 6, names(function_list)[[6]], 
-                                                                                 ifelse(x == 7, names(function_list)[[7]], names(function_list)[[8]])))))))), 
-    .SDcols = (funs)]
-
-df <- data.frame(mat[, N:= 10000])
+model <- function(n, k, full.N) {
+  mt1 <- sobol_matrices(N = n, params = paste("X", 1:k, sep = ""), matrices = matrices)
+  mt2 <- sobol_matrices(N = full.N, params = paste("X", 1:k, sep = ""), matrices = matrices)
+  Y <- metafunction(rbind(mt1, mt2))
+  ind <- 1:(n * (2 * k + 2))
+  y1 <- Y[ind]
+  y2 <- Y[-ind]
+  estimators <- c("jansen", "sobol", "homma", "azzini", "monod")
+  ind <- list()
+  # Compute Sobol' indices
+  for(i in estimators) {
+    if(i == "jansen" | i == "sobol" | i == "homma") {
+      first <- "saltelli"
+      ind[[i]] <- lapply(list(y1[1:(n * (k + 2))], 
+                              y2[1:(full.N * (k + 2))]), 
+                         function(x) sobol_indices(Y = x, 
+                                                   N = length(x) / (k + 2), 
+                                                   params = paste("X", 1:k, sep = ""), 
+                                                   first = first, 
+                                                   total = i,
+                                                   R = R))
+    } else if(i == "monod") {
+      first <- "monod"
+      ind[[i]] <- lapply(list(y1[-c((n + 1):(2 * n))], 
+                              y2[-c((full.N + 1):(2 * full.N))]), 
+                         function(x) sobol_indices(Y = x, 
+                                                   N = length(x) / (1 + 2 * k), 
+                                                   params = paste("X", 1:k, sep = ""), 
+                                                   first = first, 
+                                                   total = i,
+                                                   R = R))
+      
+    } else {
+      first <- "azzini" 
+      ind[[i]] <- lapply(list(y1, y2), 
+                         function(x) sobol_indices(Y = x, 
+                                                   N = length(x) / (2 + 2 * k), 
+                                                   params = paste("X", 1:k, sep = ""), 
+                                                   first = first, 
+                                                   total = i,
+                                                   R = R))
+    }
+    ind[[i]] <- lapply(ind[[i]], function(x) 
+      x[, c("scores", "ranks"):= .(savage_scores(original), rank(-original)), sensitivity]) 
+  }
+  return(ind)
+}
 
 # RUN MODEL -------------------------------------------------------------------
 
@@ -524,25 +554,61 @@ cl <- makeCluster(n_cores)
 registerDoParallel(cl)
 
 # Compute 
-Y <- foreach(i=1:nrow(df)) %dopar%
+Y <- foreach(i=1:nrow(mat), 
+             .packages = "data.table") %dopar%
   {
-    metafunction(k = df[[i, "k"]], 
-                 n = df[[i, "n"]], 
-                 N = df[[i, "N"]],
-                 coef1 = df[[i, "coef1"]], 
-                 coef2 = df[[i, "coef2"]], 
-                 coef3 = df[[i, "coef3"]], 
-                 f1 = df[[i, "f1"]], 
-                 f2 = df[[i, "f2"]], 
-                 f3 = df[[i, "f3"]], 
-                 f4 = df[[i, "f4"]], 
-                 f5 = df[[i, "f5"]], 
-                 f6 = df[[i, "f6"]])
+    model(k = mat[[i, "k"]], 
+          n = mat[[i, "n"]], 
+          full.N = full.N)
   }
 
 # Stop parallel cluster
 stopCluster(cl)
 
+# ARRANGE OUTPUT --------------------------------------------------------------
+
+out <- lapply(Y, function(x) lapply(x, function(y) rbindlist(y, idcol = "sample.size"))) %>%
+  lapply(., function(x) rbindlist(x, idcol = "estimator")) %>%
+  rbindlist(., idcol = "row") %>%
+  .[, sample.size:= ifelse(sample.size %in% 1, "n", "N")]
+
+out_wide <- spread(out[, .(sample.size, scores, parameters, estimator, row, sensitivity)], 
+                   sample.size, scores)
+
+out_cor <- out_wide[, .(correlation = cor(N, n)), .(estimator, row, sensitivity)]
+
+da <- data.table(mat)
+da[, row:= 1:.N]
+
+prove <- merge(da, out_cor) %>%
+  .[sensitivity == "Ti"]
+
+ggplot(prove, aes(n, k, color = correlation)) +
+  geom_point() + 
+  scale_colour_gradientn(colours = c("red", "orange", "green", "white")) +
+  facet_grid(~estimator) + 
+  theme_AP()
+
+
+
+
+
+
+
+
+
+out <- list()
+
+for(i in 1:nrow(mat)) {
+  out[[i]] <- model(k = mat[[i, "k"]], 
+                    n = mat[[i, "n"]], 
+                    full.N = full.N)
+}
+
+
+ggplot(out_cor[sensitivity == "Ti"], aes(period, freq, size=copies, color=total_len)) + 
+  geom_point() + 
+  scale_color_gradient(low="blue", high="red")
 
 
 
@@ -565,7 +631,8 @@ stopCluster(cl)
 
 
 
-str(Y.true)
+
+
 
 # # EXTRACT OUTPUT ------------------------------------------------------------
 
