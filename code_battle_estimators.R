@@ -13,8 +13,38 @@ loadPackages <- function(x) {
 }
 
 # Load the packages
-loadPackages(c("tidyverse", "parallel", "foreach", "doParallel", 
+loadPackages(c("Rcpp", "tidyverse", "parallel", "foreach", "doParallel", 
                "Rfast", "data.table"))
+
+# C++ Function for fast vector * matrix multiplication
+
+func <- 'NumericMatrix mmult( NumericMatrix m , NumericVector v , bool byrow = true ){
+  if( byrow );
+    if( ! m.nrow() == v.size() ) stop("Non-conformable arrays") ;
+  if( ! byrow );
+    if( ! m.ncol() == v.size() ) stop("Non-conformable arrays") ;
+
+  NumericMatrix out(m) ;
+
+  if( byrow ){
+    for (int j = 0; j < m.ncol(); j++) {
+      for (int i = 0; i < m.nrow(); i++) {
+        out(i,j) = m(i,j) * v[j];
+      }
+    }
+  }
+  if( ! byrow ){
+    for (int i = 0; i < m.nrow(); i++) {
+      for (int j = 0; j < m.ncol(); j++) {
+        out(i,j) = m(i,j) * v[i];
+      }
+    }
+  }
+  return out ;
+}'
+
+#  Make it available
+cppFunction(func)
 
 # FUNCTIONS TO CREATE SAMPLE MATRICES -----------------------------------------
 
@@ -411,8 +441,27 @@ function_list <- list(
   Periodic = function(x) sin(2 * pi * x) / 2,
   Discontinuous = function(x) ifelse(x > 0.5, 1, 0),
   Non.monotonic = function(x) 4 * (x - 0.5) ^ 2,
-  Inverse = function(x) (10 - 1 / 1.1) ^ -1 * (x + 0.1) ^ - 1
+  Inverse = function(x) (10 - 1 / 1.1) ^ -1 * (x + 0.1) ^ - 1, 
+  No.effect = function(x) x * 0, 
+  Trigonometric = function(x) cos(x)
 )
+
+# PLOT METAFUNCTION -----------------------------------------------------------
+
+ggplot(data.frame(x = runif(100)), aes(x)) +
+  map(1:length(function_list), function(nn) {
+    stat_function(fun = function_list[[nn]], 
+                  geom = "line", 
+                  aes_(color = factor(names(function_list[nn])), 
+                       linetype = factor(names(function_list[nn]))))
+  }) + 
+  labs(color= "Function", linetype = "Function", 
+       x = expression(italic(x)), 
+       y = expression(italic(y))) +
+  theme_AP() + 
+  theme(legend.position = "right")
+
+# DEFINE METAFUNCTION ---------------------------------------------------------
 
 metafunction <- function(X) {
   k <- ncol(X)
@@ -420,7 +469,7 @@ metafunction <- function(X) {
   all_functions <- sample(names(function_list), k, replace = TRUE)
   
   # Define coefficients
-  components <- sample(1:2, prob = c(0.5, 0.5), size = 100, replace = TRUE)
+  components <- sample(1:2, prob = c(0.5, 0.5), size = 200, replace = TRUE)
   mus <- c(0, 0)
   sds <- sqrt(c(0.5, 5))
   coefficients <- rnorm(100) * sds[components] + mus[components]
@@ -436,37 +485,23 @@ metafunction <- function(X) {
   # Coefficients for triplets
   d3 <- t(utils::combn(1:k, 3))
   d3M <- d3[sample(nrow(d3), size = ceiling(k * 0.2), replace = FALSE), ]
-  coefD3 <- sample(coefficients, nrow(d3M), replace = TRUE)
+  sample.size <- ifelse(is.vector(d3M) == TRUE, 1, nrow(d3M))
+  coefD3 <- sample(coefficients, sample.size, replace = TRUE)
   
   # Run sampled functions in each column
-  out <- lapply(seq_along(all_functions), function(x) function_list[[all_functions[x]]](X[, x]))
-  output <- do.call(cbind, out)
+  output <- sapply(seq_along(all_functions), function(x) function_list[[all_functions[x]]](X[, x]))
   
-  y1 <- Rfast::rowsums(output * rep(coefD1, rep.int(nrow(output), ncol(output))))
+  y1 <- Rfast::rowsums(mmult(output, coefD1))
+  y2 <- Rfast::rowsums(mmult(output[, d2M[, 1]] *  output[, d2M[, 2]], coefD1))
   
-  tmp2 <- output[, d2M[, 1]] *  output[, d2M[, 2]]
-  y2 <- Rfast::rowsums(tmp2 * rep(coefD2, rep.int(nrow(tmp2), ncol(tmp2))))
-  
-  tmp3 <- output[, d3M[, 1]] *  output[, d3M[, 2]] *  output[, d3M[, 3]]
-  y3 <- Rfast::rowsums(tmp3 * rep(coefD3, rep.int(nrow(tmp3), ncol(tmp3))))
-  
+  if(is.vector(d3M) == TRUE) {
+    y3 <- sum(output[, d3M[1]] *  output[, d3M[2]] * output[, d3M[3]] * coefD3)
+  } else {
+    y3 <- Rfast::rowsums(mmult(output[, d3M[, 1]] *  output[, d3M[, 2]] * output[, d3M[, 3]], coefD3))
+  }
   Y <- y1 + y2 + y3
   return(Y)
 }
-
-# PLOT METAFUNCTION -----------------------------------------------------------
-
-ggplot(data.frame(x = runif(100)), aes(x)) +
-  map(1:length(function_list), function(nn) {
-    stat_function(fun = function_list[[nn]], 
-                  geom = "line", 
-                  aes_(color = factor(names(function_list[nn])), 
-                       linetype = factor(names(function_list[nn]))))
-  }) + 
-  labs(color= "Function", linetype = "Function", 
-       x = expression(italic(x)), 
-       y = expression(italic(y))) +
-  theme_AP()
 
 # SAVAGE SCORES ---------------------------------------------------------------
 
@@ -481,17 +516,17 @@ savage_scores <- function(x) {
 
 # DEFINE SETTINGS -------------------------------------------------------------
 
-N <- 200
+N <- 1000
 R <- 10 # Number of bootstrap replicas for Sobol' indices
 params <- c("k", "n") 
-full.N <- 3000
+full.N <- 1000
 matrices <- c("A", "B", "AB", "BA")
 
 # CREATE SAMPLE MATRIX --------------------------------------------------------
 
 mat <- randtoolbox::sobol(N, length(params))
-mat[, 1] <- floor(qunif(mat[, 1], 8, 100))
-mat[, 2] <- floor(qunif(mat[, 2], 5, 1000))
+mat[, 1] <- floor(qunif(mat[, 1], 3, 200))
+mat[, 2] <- floor(qunif(mat[, 2], 5, 200))
 colnames(mat) <- params
 
 # DEFINE MODEL ----------------------------------------------------------------
@@ -539,31 +574,19 @@ model <- function(n, k, full.N) {
                                                    R = R))
     }
     ind[[i]] <- lapply(ind[[i]], function(x) 
-      x[, c("scores", "ranks"):= .(savage_scores(original), rank(-original)), sensitivity]) 
+      x[, c("savage.scores", "ranks"):= .(savage_scores(original), rank(-original)), sensitivity]) 
   }
   return(ind)
 }
 
 # RUN MODEL -------------------------------------------------------------------
 
-# Set number of cores at 75%
-n_cores <- floor(detectCores() * 0.75)
-
-# Define parallel computing
-cl <- makeCluster(n_cores)
-registerDoParallel(cl)
-
-# Compute 
-Y <- foreach(i=1:nrow(mat), 
-             .packages = "data.table") %dopar%
-  {
-    model(k = mat[[i, "k"]], 
-          n = mat[[i, "n"]], 
-          full.N = full.N)
-  }
-
-# Stop parallel cluster
-stopCluster(cl)
+Y <- list()
+for(i in 1:nrow(mat)) {
+  Y[[i]] <- model(k = mat[[i, "k"]], 
+                    n = mat[[i, "n"]], 
+                    full.N = full.N)
+}
 
 # ARRANGE OUTPUT --------------------------------------------------------------
 
@@ -572,22 +595,36 @@ out <- lapply(Y, function(x) lapply(x, function(y) rbindlist(y, idcol = "sample.
   rbindlist(., idcol = "row") %>%
   .[, sample.size:= ifelse(sample.size %in% 1, "n", "N")]
 
-out_wide <- spread(out[, .(sample.size, scores, parameters, estimator, row, sensitivity)], 
-                   sample.size, scores)
+
+out_wide <- spread(out[, .(sample.size, savage.scores, parameters, estimator, row, sensitivity)], 
+                   sample.size, savage.scores)
 
 out_cor <- out_wide[, .(correlation = cor(N, n)), .(estimator, row, sensitivity)]
 
-da <- data.table(mat)
-da[, row:= 1:.N]
+mt.dt <- data.table(mat) %>%
+  .[, row:= 1:.N]
 
-prove <- merge(da, out_cor) %>%
-  .[sensitivity == "Ti"]
+full_output <- merge(mt.dt, out_cor)
 
-ggplot(prove, aes(n, k, color = correlation)) +
-  geom_point() + 
-  scale_colour_gradientn(colours = c("red", "orange", "green", "white")) +
+ggplot(full_output[sensitivity == "Ti" & correlation > 0], aes(n, k, color = correlation)) +
+  geom_point(size = 0.8) + 
+  scale_colour_gradientn(colours = c("purple", "red", "orange", "green"), 
+                         name = expression(italic(r))) +
   facet_grid(~estimator) + 
   theme_AP()
+
+full_output[estimator %in% c("monod", "jansen")]
+
+
+
+
+
+install.packages("ggrastr")
+
+
+
+
+
 
 
 
