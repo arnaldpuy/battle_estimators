@@ -14,7 +14,7 @@ loadPackages <- function(x) {
 
 # Load the packages
 loadPackages(c("Rcpp", "tidyverse", "parallel", "foreach", "doParallel", 
-               "Rfast", "data.table"))
+               "Rfast", "data.table", "scales"))
 
 # C++ Function for fast vector * matrix multiplication
 
@@ -118,186 +118,57 @@ sobol_matrices <- function(matrices = c("A", "B", "AB"),
   return(final) 
 }
 
+# SAVAGE SCORES ---------------------------------------------------------------
 
-# COMPUTATION OF SOBOL' INDICES -----------------------------------------------
+savage_scores <- function(x) {
+  true.ranks <- rank(-x)
+  p <- sort(1 / true.ranks)
+  mat <- matrix(rep(p, length(p)), nrow = length(p), byrow = TRUE)
+  mat[upper.tri(mat)] <- 0
+  out <- sort(rowSums(mat), decreasing = TRUE)[true.ranks]
+  return(out)
+}
 
-sobol_boot <- function(d, i, N, params, R, first, total, order) {
+
+# COMPUTATION OF SOBOL' Ti INDICES --------------------------------------------
+
+sobol_Ti <- function(d, N, params, total) {
+  m <- matrix(d, nrow = N)
   k <- length(params)
-  m <- d[i, ]
-  if(first == "monod" & !total == "monod" | !first == "monod" & total == "monod") {
-    stop("monod should be used simultaneously in first and total indices 
-         \n with an A, AB and BA matrices")
-  }
-  if(first == "azzini" & !total == "azzini" | !first == "azzini" & total == "azzini") {
-    stop("azzini should be used simultaneously in first and total indices 
-         \n with an A, B, AB and BA matrices")
-  }
-  if(first == "jansen" | first == "saltelli" & 
-     total == "jansen" | total == "sobol" | total == "homma") {
+  if(!total == "azzini") {
     Y_A <- m[, 1]
-    Y_B <- m[, 2]
-    Y_AB <- m[, -c(1, 2)]
-    f0 <- 1 / (2 * N) * sum(Y_A + Y_B)
-    VY <- 1 / (2 * N - 1) * sum((Y_A - f0) ^ 2 + (Y_B - f0) ^ 2)
-  } else if(first == "monod" & total == "monod") {
-    Y_A <- m[, 1]
-    Y_AB <- m[, 2:(2 + k - 1)]
-    Y_BA <- m[, (ncol(m) - k + 1):ncol(m)]
-  } else if(first == "azzini" | total == "azzini") {
+    Y_AB <- m[, -1]
+    f0 <- (1 / length(Y_A)) * sum(Y_A)
+    VY <- 1 / length(Y_A) * sum((Y_A - f0) ^ 2)
+  }
+  if(total == "jansen") {
+    Ti <- (1 / (2 * N) * Rfast::colsums((Y_A - Y_AB) ^ 2)) / VY
+  } else if(total == "homma") {
+    Ti <- (VY - (1 / N) * Rfast::colsums(Y_A * Y_AB) + f0 ^ 2) / VY
+  } else if(total == "sobol") {
+    Ti <- ((1 / N) * Rfast::colsums(Y_A * (Y_A - Y_AB))) / VY
+  } else if(total == "monod") {
+    Ti <- 1 - (1 / N * Rfast::colsums(Y_A * Y_AB) - 
+                  (1/ N * Rfast::colsums((Y_A + Y_AB) / 2)) ^ 2) / 
+      (1 / N * Rfast::colsums((Y_A ^ 2 + Y_AB ^ 2) / 2) - 
+         (1/ N * Rfast::colsums((Y_A + Y_AB) / 2)) ^ 2)
+  }
+  if(total == "azzini") {
     Y_A <- m[, 1]
     Y_B <- m[, 2]
     Y_AB <- m[, 3:(3 + k - 1)]
     Y_BA <- m[, (ncol(m) - k + 1):ncol(m)]
-  }
-  if(order == "second" | order == "third") {
-    if(first == "azzini" | first == "monod") {
-      stop("high-order indices require to use either jansen or saltelli as 
-         \n first-order indices")
-    }
-  }
-  if(first == "saltelli") {
-    Vi <- 1 / N * Rfast::colsums(Y_B * (Y_AB - Y_A))
-  } else if(first == "jansen") {
-    Vi <- VY - 1 / (2 * N) * Rfast::colsums((Y_B - Y_AB) ^ 2)
-  } else if(first == "azzini") {
-    Vi <- Rfast::colsums((Y_A - Y_AB) * (Y_B - Y_BA))
-  } else if(first == "monod") {
-    Vi <- 1 / N * Rfast::colsums(Y_A * Y_BA - (1 / (2 * N) * Rfast::colsums(Y_A + Y_BA)) ^ 2)
-  } else {
-    stop("Si should  be either jansen, saltelli, azzini or monod")
-  } 
-  if(first == "saltelli" | first == "jansen") {
-    Si <- Vi[1:k] / VY
-  } 
-  if(first == "azzini") {
-    Si <- abs(Vi / (1 / 2 * Rfast::colsums((Y_A - Y_B) ^ 2 + (Y_AB - Y_BA) ^ 2))) 
-  } 
-  if (first == "monod") { 
-    Si <- Vi / (1 / (2 * N) * Rfast::colsums(Y_A ^ 2 + Y_BA ^ 2) - 
-                  (1 / (2 * N) * Rfast::colsums(Y_A + Y_BA)) ^ 2)
-  }
-  if(total == "jansen") {
-    STi <- (1 / (2 * N) * Rfast::colsums((Y_A - Y_AB) ^ 2)) / VY
-  } else if(total == "homma") {
-    STi <- (VY - (1 / N) * Rfast::colsums(Y_A * Y_AB) + f0 ^ 2) / VY
-  } else if(total == "sobol") {
-    STi <- ((1 / N) * Rfast::colsums(Y_A * (Y_A - Y_AB))) / VY
-  } else if(total == "azzini") {
-    STi <- 1 - abs(Rfast::colsums((Y_A - Y_BA) * (Y_B - Y_AB)) / 
+    Ti <- 1 - abs(Rfast::colsums((Y_A - Y_BA) * (Y_B - Y_AB)) / 
                      (1 / 2 * Rfast::colsums((Y_A - Y_B) ^ 2 + (Y_AB - Y_BA) ^ 2)))
-  } else if(total == "monod") {
-    STi <- 1 - (1 / N * Rfast::colsums(Y_A * Y_AB) - 
-                  (1/ N * Rfast::colsums((Y_A + Y_AB) / 2)) ^ 2) / 
-      (1 / N * Rfast::colsums((Y_A ^ 2 + Y_AB ^ 2) / 2) - 
-         (1/ N * Rfast::colsums((Y_A + Y_AB) / 2)) ^ 2)
-  } else {
-    stop("STi should  be either jansen, sobol, azzini, homma or monod")
-  }
-  STi <- STi[1:k]
-  if(order == "second" | order == "third") {
-    com2 <- utils::combn(1:k, 2, simplify = FALSE)
-    mat2 <- t(mapply(c, Vi[(k + 1):(k + length(com2))], lapply(com2, function(x) Vi[x])))
-    Vij <- apply(mat2, 1, function(x) Reduce("-", x))
-    Sij <- Vij / VY
-  } else {
-    Sij <- NULL
-  }
-  if(order == "third") {
-    tmp <- do.call(rbind, com2)
-    Vij.vec <- as.numeric(paste(tmp[, 1], tmp[, 2], sep = ""))
-    Vij.named <- Vij
-    names(Vij.named) <- Vij.vec
-    com3 <- utils::combn(1:k, 3, simplify = FALSE)
-    Vi.only <- do.call(rbind, lapply(com3, function(x) Vi[x])) # Extract Vi, Vj, Vk
-    Vijk.only <- tail(Vi, length(com3)) # Extract Vijk
-    tmp3 <- do.call(rbind, com3)
-    first.pairwise <- lapply(paste(tmp3[, 1], tmp3[, 2], sep = ""), function(x) Vij.named[x])
-    second.pairwise <- lapply(paste(tmp3[, 1], tmp3[, 3], sep = ""), function(x) Vij.named[x]) 
-    third.pairwise <- lapply(paste(tmp3[, 2], tmp3[, 3], sep = ""), function(x) Vij.named[x])
-    Vij.only <- t(mapply(cbind, first.pairwise, second.pairwise, third.pairwise))
-    mat3 <- cbind(Vijk.only, Vij.only, Vi.only)
-    Vijk <- apply(mat3, 1, function(x) Reduce("-", x))
-    Sijk <- Vijk / VY
-  } else {
-    Sijk <- NULL
-  }
-  return(c(Si, STi, Sij, Sijk))
+  } 
+  output <- data.table(Ti)
+  output[, `:=`(parameters = paste("X", 1:k, sep = ""), 
+                ranks= rank(-Ti), 
+                savage.scores = savage_scores(Ti))]
+  return(output)
 }
 
-# BOOTSTRAP OF SOBOL' INDICES -------------------------------------------------
-
-# Extract bootstrap confidence intervals
-bootstats <- function(b, conf = conf, type = type) {
-  p <- length(b$t0)
-  lab <- c("original", "bias", "std.error", "low.ci", "high.ci")
-  tmp <- as.data.frame(matrix(nrow = p,
-                              ncol = length(lab),
-                              dimnames = list(NULL, lab)))
-  for (i in 1:p) {
-    # original estimation, bias, standard deviation
-    tmp[i, "original"] <- b$t0[i]
-    tmp[i, "bias"] <- mean(b$t[, i]) - b$t0[i]
-    tmp[i, "std.error"] <- stats::sd(b$t[, i])
-    # confidence interval
-    if (type == "norm") {
-      ci <- boot::boot.ci(b, index = i, type = "norm", conf = conf)
-      if (!is.null(ci)) {
-        tmp[i, "low.ci"] <- ci$norm[2]
-        tmp[i, "high.ci"] <- ci$norm[3]
-      }
-    } else if (type == "basic") {
-      ci <- boot::boot.ci(b, index = i, type = "basic", conf = conf)
-      if (!is.null(ci)) {
-        tmp[i, "low.ci"] <- ci$basic[4]
-        tmp[i, "high.ci"] <- ci$basic[5]
-      }
-    } else if (type == "percent") {
-      ci <- boot::boot.ci(b, index = i, type = "perc", conf = conf)
-      if (!is.null(ci)) {
-        tmp[i, "low.ci"] <- ci$percent[4]
-        tmp[i, "high.ci"] <- ci$percent[5]
-      }
-    } else if (type == "bca") {
-      ci <- boot::boot.ci(b, index = i, conf = conf)
-      if (!is.null(ci)) {
-        tmp[i, "low.ci"] <- ci$bca[4]
-        tmp[i, "high.ci"] <- ci$bca[5]
-      }
-    }
-  }
-  return(data.table::data.table(tmp))
-}
-
-# Compute bootstrap Sobol' indices
-sobol_indices <- function(Y, N, params, R, first = "saltelli", total = "jansen", 
-                          order = "first", parallel = "no", 
-                          ncpus = 1, conf = 0.95, type = "norm") {
-  k <- length(params)
-  d <- matrix(Y, nrow = N)
-  out.boot <- boot::boot(data = d, statistic = sobol_boot, R = R, N = N, params = params, 
-                         first = first, total = total, order = order, 
-                         parallel = parallel, ncpus = ncpus)
-  out.ci <- bootstats(out.boot, conf = conf, type = type)
-  if(order == "first") {
-    parameters <- c(rep(params, times = 2))
-    indices <- c(rep(c("Si", "Ti"), each = k))
-  } else if(order == "second" | order == "third") {
-    unlist(lapply(utils::combn(params, 2, simplify = FALSE), function(x) 
-      paste0(x, collapse = ".")))
-    parameters <- c(c(rep(params, times = 2)), vector.second)
-    indices <- c(rep(c("Si", "Ti"), each = length(params)), 
-                 rep("Sij", times = length(vector.second)))
-  } else if(order == "third") {
-    vector.third <- unlist(lapply(utils::combn(params, 3, simplify = FALSE), function(x) 
-      paste0(x, collapse = ".")))
-    parameters <- c(parameters, vector.third)
-    indices <- c(rep(c("Si", "Ti"), each = k), 
-                 rep("Sij", times = length(vector.second)), 
-                 rep("Sijk", times = length(vector.third)))
-  }
-  out.ci[, sensitivity:= cbind(indices)][, parameters:= cbind(parameters)]
-  return(out.ci)
-}
+# FUNCTIONS TO PLOT -----------------------------------------------------------
 
 # Create function for custom plot themes
 theme_AP <- function() {
@@ -368,26 +239,23 @@ plot_sobol <- function(indices, dummy = NULL, order = "first") {
   return(gg)
 }
 
+
+
 # CHECK THAT ALL TI ESTIMATORS WORK -------------------------------------------
 
 # Settings
 estimators <- c("jansen", "sobol", "homma", "azzini", "monod")
 test_functions <- c("Ishigami", "Sobol'G", "Morris")
-N <- R <- 2^10
+N <- 2^9
 
 # Run model
 ind <- Y <- mt <- list() 
 for(i in estimators) {
   for(j in test_functions) {
-    if(i == "jansen" | i == "sobol" | i == "homma") {
-      matrices <- c("A", "B", "AB")
-      first <- "saltelli"
-    } else if(i == "azzini") {
+    if(!i == "azzini") {
+      matrices <- c("A", "AB")
+    } else {
       matrices <- c("A", "B", "AB", "BA")
-      first = "azzini"
-    } else if(i == "monod") {
-      matrices <- c("A", "AB", "BA")
-      first = "monod"
     }
     if(j == "Ishigami") {
       k <- 3
@@ -401,35 +269,30 @@ for(i in estimators) {
     }
     mt[[i]][[j]] <- sobol_matrices(N = N, params = paste("X", 1:k, sep = ""), matrices = matrices)
     Y[[i]][[j]] <- modelRun(mt[[i]][[j]])
-    ind[[i]][[j]] <- sobol_indices(Y = Y[[i]][[j]], params = paste("X", 1:k, sep = ""), R = R, N = N, 
-                                   first = first, total = i)
+    ind[[i]][[j]] <- sobol_Ti(d = Y[[i]][[j]], params = paste("X", 1:k, sep = ""), 
+                              N = N, total = i)
   }
 }
 
 # Plot sensitivity indices
 lapply(ind, function(x) rbindlist(x, idcol = "Function")) %>%
-  rbindlist(., idcol = "total") %>%
-  .[sensitivity == "Ti"] %>%
+  rbindlist(., idcol = "estimator") %>%
   .[, parameters:= factor(parameters, levels = paste("X", 1:20, sep = ""))] %>%
   .[, Function:= factor(Function, levels = test_functions)] %>%
-  ggplot(., aes(parameters, original, fill = total)) +
+  ggplot(., aes(parameters, Ti, fill = estimator)) +
   geom_bar(stat = "identity", 
            position = position_dodge(0.5), 
            color = "black") +
-  geom_errorbar(aes(ymin = low.ci,
-                    ymax = high.ci),
-                position = position_dodge(0.5)) +
-  scale_fill_discrete(name = expression(paste("Sobol' ", T[italic(i)])),
-                      labels = c("Azzini", "Homma", "Jansen", 
-                                 "Monod", "Sobol")) +
   facet_grid(~Function, 
              scales = "free_x", 
              space = "free_x") +
+  scale_fill_discrete(name = expression(paste("Sobol' ", T[italic(i)])),
+                      labels = c("Azzini", "Homma", "Jansen", 
+                                 "Monod", "Sobol")) +
   labs(x = "",
        y = expression(T[italic(i)])) +
   theme_AP() + 
-  theme(axis.text.x = element_text(size = 6))
-
+  theme(axis.text.x = element_text(size = 8))
 
 # CREATE METAFUNCTION ---------------------------------------------
 
@@ -467,33 +330,26 @@ metafunction <- function(X) {
   k <- ncol(X)
   # Define functions according to k
   all_functions <- sample(names(function_list), k, replace = TRUE)
-  
   # Define coefficients
   components <- sample(1:2, prob = c(0.5, 0.5), size = 200, replace = TRUE)
   mus <- c(0, 0)
   sds <- sqrt(c(0.5, 5))
   coefficients <- rnorm(100) * sds[components] + mus[components]
-  
   # Coefficients for first
   coefD1 <- sample(coefficients, k)
-  
   # Coefficients for pairs
   d2 <- t(utils::combn(1:k, 2))
   d2M <- d2[sample(nrow(d2), size = ceiling(k * 0.5), replace = FALSE), ]
   coefD2 <- sample(coefficients, nrow(d2M), replace = TRUE)
-  
   # Coefficients for triplets
   d3 <- t(utils::combn(1:k, 3))
   d3M <- d3[sample(nrow(d3), size = ceiling(k * 0.2), replace = FALSE), ]
   sample.size <- ifelse(is.vector(d3M) == TRUE, 1, nrow(d3M))
   coefD3 <- sample(coefficients, sample.size, replace = TRUE)
-  
   # Run sampled functions in each column
   output <- sapply(seq_along(all_functions), function(x) function_list[[all_functions[x]]](X[, x]))
-  
   y1 <- Rfast::rowsums(mmult(output, coefD1))
   y2 <- Rfast::rowsums(mmult(output[, d2M[, 1]] *  output[, d2M[, 2]], coefD1))
-  
   if(is.vector(d3M) == TRUE) {
     y3 <- sum(output[, d3M[1]] *  output[, d3M[2]] * output[, d3M[3]] * coefD3)
   } else {
@@ -503,103 +359,107 @@ metafunction <- function(X) {
   return(Y)
 }
 
-# SAVAGE SCORES ---------------------------------------------------------------
-
-savage_scores <- function(x) {
-  true.ranks <- rank(-x)
-  p <- sort(1 / true.ranks)
-  mat <- matrix(rep(p, length(p)), nrow = length(p), byrow = TRUE)
-  mat[upper.tri(mat)] <- 0
-  out <- sort(rowSums(mat), decreasing = TRUE)[true.ranks]
-  return(out)
-}
-
 # DEFINE SETTINGS -------------------------------------------------------------
 
-N <- 1000
-R <- 10 # Number of bootstrap replicas for Sobol' indices
-params <- c("k", "n") 
-full.N <- 1000
-matrices <- c("A", "B", "AB", "BA")
+N <- 500
+params <- c("k", "C") 
+N.high <- 5000
 
 # CREATE SAMPLE MATRIX --------------------------------------------------------
 
 mat <- randtoolbox::sobol(N, length(params))
-mat[, 1] <- floor(qunif(mat[, 1], 3, 200))
-mat[, 2] <- floor(qunif(mat[, 2], 5, 200))
+mat[, 1] <- floor(qunif(mat[, 1], 3, 100))
+mat[, 2] <- floor(qunif(mat[, 2], 10, 1000))
 colnames(mat) <- params
+
+N.all <- apply(mat, 1, function(x) ceiling(x["C"] / (x["k"] + 1)))
+N.azzini <- apply(mat, 1, function(x) ceiling(x["C"] / (2 * x["k"] + 2)))
+
+tmp <- cbind(mat, N.all, N.azzini)
+sel <- c("N.all", "N.azzini")
+
+mat <- as.matrix(data.table(tmp)[, (sel):= lapply(.SD, function(x) 
+  ifelse(x == 1, 2, x)), .SDcols = (sel)])
 
 # DEFINE MODEL ----------------------------------------------------------------
 
-model <- function(n, k, full.N) {
-  mt1 <- sobol_matrices(N = n, params = paste("X", 1:k, sep = ""), matrices = matrices)
-  mt2 <- sobol_matrices(N = full.N, params = paste("X", 1:k, sep = ""), matrices = matrices)
-  Y <- metafunction(rbind(mt1, mt2))
-  ind <- 1:(n * (2 * k + 2))
-  y1 <- Y[ind]
-  y2 <- Y[-ind]
-  estimators <- c("jansen", "sobol", "homma", "azzini", "monod")
+model_Ti <- function(k, N.all, N.azzini, N.high) {
   ind <- list()
-  # Compute Sobol' indices
+  estimators <- c("jansen", "sobol", "homma", "monod", "azzini")
+  all.but.azzini <- sobol_matrices(N = N.all, params = paste("X", 1:k, sep = ""), 
+                                   matrices = c("A", "AB"))
+  azzini <- sobol_matrices(N = N.azzini, params = paste("X", 1:k, sep = ""), 
+                           matrices = c("A", "B", "AB", "BA"))
+  large.matrix <- sobol_matrices(N = N.high, params = paste("X", 1:k, sep = ""), 
+                                 matrices = c("A", "AB"))
+  output <- metafunction(rbind(all.but.azzini, azzini, large.matrix))
+  full.ind <- sobol_Ti(d = tail(output, nrow(large.matrix)), 
+                       N = N.high, 
+                       params = paste("X", 1:k, sep = ""), 
+                       total = "jansen")
+  full.ind[, sample.size:= "N"]
   for(i in estimators) {
-    if(i == "jansen" | i == "sobol" | i == "homma") {
-      first <- "saltelli"
-      ind[[i]] <- lapply(list(y1[1:(n * (k + 2))], 
-                              y2[1:(full.N * (k + 2))]), 
-                         function(x) sobol_indices(Y = x, 
-                                                   N = length(x) / (k + 2), 
-                                                   params = paste("X", 1:k, sep = ""), 
-                                                   first = first, 
-                                                   total = i,
-                                                   R = R))
-    } else if(i == "monod") {
-      first <- "monod"
-      ind[[i]] <- lapply(list(y1[-c((n + 1):(2 * n))], 
-                              y2[-c((full.N + 1):(2 * full.N))]), 
-                         function(x) sobol_indices(Y = x, 
-                                                   N = length(x) / (1 + 2 * k), 
-                                                   params = paste("X", 1:k, sep = ""), 
-                                                   first = first, 
-                                                   total = i,
-                                                   R = R))
-      
+    if(!i == "azzini") {
+      y <- output[1:nrow(all.but.azzini)]
+      n <- N.all
     } else {
-      first <- "azzini" 
-      ind[[i]] <- lapply(list(y1, y2), 
-                         function(x) sobol_indices(Y = x, 
-                                                   N = length(x) / (2 + 2 * k), 
-                                                   params = paste("X", 1:k, sep = ""), 
-                                                   first = first, 
-                                                   total = i,
-                                                   R = R))
+      y <- output[-c(1:nrow(all.but.azzini), 
+                     (nrow(all.but.azzini) + nrow(azzini) + 1):length(output))]
+      n <- N.azzini
     }
-    ind[[i]] <- lapply(ind[[i]], function(x) 
-      x[, c("savage.scores", "ranks"):= .(savage_scores(original), rank(-original)), sensitivity]) 
+    ind[[i]] <- sobol_Ti(d = y, N = n, params = paste("X", 1:k, sep = ""), total = i)
+    ind[[i]][, sample.size:= "n"]
+    ind[[i]] <- rbind(ind[[i]], full.ind)
   }
   return(ind)
 }
 
 # RUN MODEL -------------------------------------------------------------------
 
-Y <- list()
+Y.ti <- list()
 for(i in 1:nrow(mat)) {
-  Y[[i]] <- model(k = mat[[i, "k"]], 
-                    n = mat[[i, "n"]], 
-                    full.N = full.N)
+  Y.ti[[i]] <- model_Ti(k = mat[[i, "k"]], 
+                        N.all = mat[[i, "N.all"]], 
+                        N.azzini = mat[[i, "N.azzini"]], 
+                        N.high = N.high)
 }
 
 # ARRANGE OUTPUT --------------------------------------------------------------
 
-out <- lapply(Y, function(x) lapply(x, function(y) rbindlist(y, idcol = "sample.size"))) %>%
-  lapply(., function(x) rbindlist(x, idcol = "estimator")) %>%
-  rbindlist(., idcol = "row") %>%
-  .[, sample.size:= ifelse(sample.size %in% 1, "n", "N")]
+out <- lapply(Y.ti, function(x) rbindlist(x, idcol = "estimator")) %>%
+  rbindlist(., idcol = "row")
 
-
-out_wide <- spread(out[, .(sample.size, savage.scores, parameters, estimator, row, sensitivity)], 
+out_wide <- spread(out[, .(sample.size, savage.scores, parameters, estimator, row)], 
                    sample.size, savage.scores)
 
-out_cor <- out_wide[, .(correlation = cor(N, n)), .(estimator, row, sensitivity)]
+out_cor <- out_wide[, .(correlation = cor(N, n)), .(estimator, row)]
+mt.dt <- data.table(mat) %>%
+  .[, row:= 1:.N]
+
+full_output <- merge(mt.dt, out_cor) %>%
+  .[, Nt:= ifelse(estimator == "azzini", N.azzini * (2 * k + 2), N.all * (k + 1))] %>%
+  .[, estimator:= ifelse(estimator %in% "azzini", "Azzini", 
+                        ifelse(estimator %in% "homma", "Homma",
+                               ifelse(estimator %in% "monod", "Janon/Monod", 
+                                      ifelse(estimator %in% "jansen", "Jansen", "Sobol'"))))]
+
+# PLOT OUTPUT -----------------------------------------------------------------
+
+# Scatterplot
+ggplot(full_output[correlation > 0], aes(Nt, k, color = correlation)) +
+  geom_point(size = 0.8) + 
+  scale_colour_gradientn(colours = c("purple", "red", "orange", "green"), 
+                         name = expression(italic(r))) +
+  scale_x_continuous(breaks = pretty_breaks(n = 3)) +
+  facet_grid(~estimator) + 
+  theme_AP()
+
+# Boxplot
+ggplot(full_output[correlation > 0], aes(estimator, correlation)) +
+  geom_boxplot() + 
+  theme_AP()
+
+
 
 mt.dt <- data.table(mat) %>%
   .[, row:= 1:.N]
