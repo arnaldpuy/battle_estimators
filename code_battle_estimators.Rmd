@@ -1,0 +1,116 @@
+---
+title: "The battle of variance-based sensitivity estimators"
+author: "Arnald Puy, Samuele Lo Piano, Andrea Saltelli"
+header-includes:
+  - \usepackage[font=footnotesize]{caption}
+  - \usepackage{dirtytalk}
+  - \usepackage{booktabs}
+  - \usepackage{tabulary}
+  - \usepackage{enumitem}
+  - \usepackage{lmodern}
+  - \usepackage[T1]{fontenc}
+output:
+  pdf_document:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    keep_tex: true
+  word_document:
+    toc: no
+    toc_depth: '2'
+  html_document:
+    keep_md: true
+link-citations: yes
+fontsize: 11pt
+bibliography: /Users/arnald/Documents/bibtex/ERC-sensitivity.bib
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\newpage
+
+```{r preliminary steps, results="hide", message=FALSE, warning=FALSE}
+
+# PRELIMINARY FUNCTIONS -------------------------------------------------------
+
+# Function to read in all required packages in one go:
+loadPackages <- function(x) {
+  for(i in x) {
+    if(!require(i, character.only = TRUE)) {
+      install.packages(i, dependencies = TRUE)
+      library(i, character.only = TRUE)
+    }
+  }
+}
+
+# Load the packages
+loadPackages(c("Rcpp", "tidyverse", "parallel", "foreach", "doParallel", 
+               "Rfast", "data.table", "scales"))
+# Create custom theme
+theme_AP <- function() {
+  theme_bw() +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          legend.background = element_rect(fill = "transparent",
+                                           color = NA),
+          legend.key = element_rect(fill = "transparent",
+                                    color = NA))
+}
+
+# Set checkpoint
+
+dir.create(".checkpoint")
+library("checkpoint")
+
+checkpoint("2020-01-23", 
+           R.version ="3.6.1", 
+           checkpointLocation = getwd())
+```
+
+## The metafunction
+
+We use @Becker2019's metafunction approach, and define a metafunction including ten different functions. The code and the functions are shown below:
+
+```{r functions_metafunction, cache=TRUE}
+
+# CREATE METAFUNCTION ---------------------------------------------------------
+
+function_list <- list(
+  Linear = function(x) x,
+  Quadratic = function(x) x ^ 2,
+  Cubic = function(x) x ^ 3,
+  Exponential = function(x) exp(1) ^ x / (exp(1) - 1),
+  Periodic = function(x) sin(2 * pi * x) / 2,
+  Discontinuous = function(x) ifelse(x > 0.5, 1, 0),
+  Non.monotonic = function(x) 4 * (x - 0.5) ^ 2,
+  Inverse = function(x) (10 - 1 / 1.1) ^ -1 * (x + 0.1) ^ - 1, 
+  No.effect = function(x) x * 0, 
+  Trigonometric = function(x) cos(x)
+)
+```
+
+```{r plot_functions_metafunction, cache=TRUE, dependson="functions_metafunction", dev = "tikz", fig.height=3, fig.width=5, fig.cap="Functions used in the metafunction of @Becker2019."}
+
+# PLOT METAFUNCTION -----------------------------------------------------------
+
+ggplot(data.frame(x = runif(100)), aes(x)) +
+  map(1:length(function_list), function(nn) {
+    stat_function(fun = function_list[[nn]], 
+                  geom = "line", 
+                  aes_(color = factor(names(function_list[nn])), 
+                       linetype = factor(names(function_list[nn]))))
+  }) + 
+  labs(color= "Function", linetype = "Function", 
+       x = expression(italic(x)), 
+       y = expression(italic(y))) +
+  theme_AP() + 
+  theme(legend.position = "right")
+```
+
+\newpage
+
+# References
