@@ -140,6 +140,7 @@ sobol_Ti <- function(d, N, params, total) {
     Y_AB <- m[, -1]
     f0 <- (1 / length(Y_A)) * sum(Y_A)
     VY <- 1 / length(Y_A) * sum((Y_A - f0) ^ 2)
+     # VY <- 1 / length(Y_A) * (sum(Y_A ^ 2) - (1 / N * sum(Y_A ^ 2))) Variance used by Becker
   }
   if(total == "jansen") {
     Ti <- (1 / (2 * N) * Rfast::colsums((Y_A - Y_AB) ^ 2)) / VY
@@ -361,15 +362,15 @@ metafunction <- function(X) {
 
 # DEFINE SETTINGS -------------------------------------------------------------
 
-N <- 500
+N <- 2 ^ 10
 params <- c("k", "C") 
-N.high <- 5000
+N.high <- 2 ^ 13
 
 # CREATE SAMPLE MATRIX --------------------------------------------------------
 
 mat <- randtoolbox::sobol(N, length(params))
-mat[, 1] <- floor(qunif(mat[, 1], 3, 100))
-mat[, 2] <- floor(qunif(mat[, 2], 10, 1000))
+mat[, 1] <- floor(qunif(mat[, 1], 3, 150))
+mat[, 2] <- floor(qunif(mat[, 2], 10, 2000))
 colnames(mat) <- params
 
 N.all <- apply(mat, 1, function(x) ceiling(x["C"] / (x["k"] + 1)))
@@ -428,6 +429,7 @@ for(i in 1:nrow(mat)) {
 
 out <- lapply(Y.ti, function(x) rbindlist(x, idcol = "estimator")) %>%
   rbindlist(., idcol = "row")
+fwrite(out, "out.csv")
 
 out_wide <- spread(out[, .(sample.size, savage.scores, parameters, estimator, row)], 
                    sample.size, savage.scores)
@@ -458,6 +460,22 @@ ggplot(full_output[correlation > 0], aes(Nt, k, color = correlation)) +
 ggplot(full_output[correlation > 0], aes(estimator, correlation)) +
   geom_boxplot() + 
   theme_AP()
+
+# Ratio
+full_output[, ratio:= Nt / k]
+ggplot(full_output, aes(ratio, correlation)) +
+  geom_point(alpha = 0.3) +
+  facet_grid(~estimator) +
+  labs(x = expression(N[t]/k), 
+       y = expression(r)) +
+  scale_x_log10() +
+  theme_AP()
+
+
+
+
+
+
 
 
 
