@@ -1,5 +1,5 @@
 ---
-title: "The battle of variance-based sensitivity estimators"
+title: "The battle of total-order sensitivity estimators"
 author: "Arnald Puy, Samuele Lo Piano, Andrea Saltelli and William Becker"
 header-includes:
   - \usepackage[font=footnotesize]{caption}
