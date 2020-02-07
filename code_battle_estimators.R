@@ -1,4 +1,8 @@
+## ----setup, include=FALSE---------------------------------------------------
+knitr::opts_chunk$set(echo = TRUE)
 
+
+## ----preliminary steps, results="hide", message=FALSE, warning=FALSE--------
 
 # PRELIMINARY FUNCTIONS -------------------------------------------------------
 
@@ -14,37 +18,30 @@ loadPackages <- function(x) {
 
 # Load the packages
 loadPackages(c("Rcpp", "tidyverse", "parallel", "foreach", "doParallel", 
-               "Rfast", "data.table", "scales"))
+               "Rfast", "data.table", "scales", "cowplot", "benchmarkme"))
 
-# C++ Function for fast vector * matrix multiplication
+# Create custom theme
+theme_AP <- function() {
+  theme_bw() +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          legend.background = element_rect(fill = "transparent",
+                                           color = NA),
+          legend.key = element_rect(fill = "transparent",
+                                    color = NA))
+}
 
-func <- 'NumericMatrix mmult( NumericMatrix m , NumericVector v , bool byrow = true ){
-  if(byrow);
-    if(! m.nrow() == v.size()) stop("Non-conformable arrays") ;
-  if( ! byrow );
-    if(! m.ncol() == v.size()) stop("Non-conformable arrays") ;
+# Set checkpoint
 
-  NumericMatrix out(m) ;
+dir.create(".checkpoint")
+library("checkpoint")
 
-  if(byrow){
-    for (int j = 0; j < m.ncol(); j++) {
-      for (int i = 0; i < m.nrow(); i++) {
-        out(i,j) = m(i,j) * v[j];
-      }
-    }
-  }
-  if(! byrow){
-    for (int i = 0; i < m.nrow(); i++) {
-      for (int j = 0; j < m.ncol(); j++) {
-        out(i,j) = m(i,j) * v[i];
-      }
-    }
-  }
-  return out ;
-}'
+checkpoint("2020-01-23", 
+           R.version ="3.6.1", 
+           checkpointLocation = getwd())
 
-#  Make it available
-cppFunction(func)
+
+## ----sample_matrices_functions, cache=TRUE----------------------------------
 
 # FUNCTIONS TO CREATE SAMPLE MATRICES -----------------------------------------
 
@@ -118,6 +115,9 @@ sobol_matrices <- function(matrices = c("A", "B", "AB"),
   return(final) 
 }
 
+
+## ----savage_scores, cache=TRUE----------------------------------------------
+
 # SAVAGE SCORES ---------------------------------------------------------------
 
 savage_scores <- function(x) {
@@ -130,6 +130,8 @@ savage_scores <- function(x) {
 }
 
 
+## ----ti_indices, cache=TRUE, dependson=c("savage_scores", "sample_matrices_functions")----
+
 # COMPUTATION OF SOBOL' Ti INDICES --------------------------------------------
 
 sobol_Ti <- function(d, N, params, total) {
@@ -140,7 +142,8 @@ sobol_Ti <- function(d, N, params, total) {
     Y_AB <- m[, -1]
     f0 <- (1 / length(Y_A)) * sum(Y_A)
     VY <- 1 / length(Y_A) * sum((Y_A - f0) ^ 2)
-     # VY <- 1 / length(Y_A) * (sum(Y_A ^ 2) - (1 / N * sum(Y_A ^ 2))) Variance used by Becker
+     # VY <- 1 / length(Y_A) * (sum(Y_A ^ 2) - 
+    # (1 / N * sum(Y_A ^ 2))) ((Variance used by Becker))
   }
   if(total == "jansen") {
     Ti <- (1 / (2 * N) * Rfast::colsums((Y_A - Y_AB) ^ 2)) / VY
@@ -169,78 +172,8 @@ sobol_Ti <- function(d, N, params, total) {
   return(output)
 }
 
-# FUNCTIONS TO PLOT -----------------------------------------------------------
 
-# Create function for custom plot themes
-theme_AP <- function() {
-  theme_bw() +
-    theme(legend.position = "top", 
-          panel.grid.major = element_blank(),
-          panel.grid.minor = element_blank(),
-          legend.background = element_rect(fill = "transparent",
-                                           color = NA),
-          legend.key = element_rect(fill = "transparent",
-                                    color = NA))
-}
-
-# Plot indices
-plot_sobol <- function(indices, dummy = NULL, order = "first") {
-  sensitivity <- low.ci <- high.ci <- parameters <- original <- NULL
-  if(order == "first") {
-    if(is.null(dummy) == FALSE) {
-      plot.dummy <- geom_rect(data = dummy,
-                              aes(ymin = 0,
-                                  ymax = high.ci,
-                                  xmin = -Inf,
-                                  xmax = Inf,
-                                  fill = sensitivity),
-                              alpha = 0.2,
-                              inherit.aes = FALSE)
-    } else {
-      plot.dummy <- NULL
-    }
-    p <- indices[sensitivity == "Si" | sensitivity == "Ti"]
-    gg <- ggplot2::ggplot(p, aes(parameters, original,
-                                 fill = sensitivity)) +
-      geom_bar(stat = "identity",
-               position = position_dodge(0.6),
-               color = "black") +
-      plot.dummy +
-      geom_errorbar(aes(ymin = low.ci,
-                        ymax = high.ci),
-                    position = position_dodge(0.6)) +
-      scale_fill_discrete(name = "Sobol' indices",
-                          labels = c(expression(S[italic(i)]),
-                                     expression(T[italic(i)]))) +
-      labs(x = "",
-           y = "Sobol' index") +
-      theme_AP()
-  } else if(!order == "first") {
-    if(order == "second") {
-      plot.type <- "Sij"
-    } else if(order == "third") {
-      plot.type <- "Sijk"
-    } else {
-      stop("Order should be either first, second or third")
-    }
-    p <- indices[sensitivity == plot.type]
-    gg <- ggplot2::ggplot(p, aes(stats::reorder(parameters, original),
-                                 original)) +
-      geom_point() +
-      geom_errorbar(aes(ymin = low.ci,
-                        ymax = high.ci)) +
-      theme_bw() +
-      labs(x = "",
-           y = "Sobol' index") +
-      geom_hline(yintercept = 0,
-                 lty = 2,
-                 color = "red") +
-      theme_AP()
-  }
-  return(gg)
-}
-
-
+## ----check_ti, cache=TRUE, dependson="ti_indices"---------------------------
 
 # CHECK THAT ALL TI ESTIMATORS WORK -------------------------------------------
 
@@ -275,14 +208,18 @@ for(i in estimators) {
   }
 }
 
-# Plot sensitivity indices
+
+## ----plot_prove, cache=TRUE, dependson="check_ti", dev="tikz", fig.height=3, fig.width=6.5----
+
+# PLOT SENSITIVITY INDICES ----------------------------------------------------
+
 lapply(ind, function(x) rbindlist(x, idcol = "Function")) %>%
   rbindlist(., idcol = "estimator") %>%
   .[, parameters:= factor(parameters, levels = paste("X", 1:20, sep = ""))] %>%
   .[, Function:= factor(Function, levels = test_functions)] %>%
   ggplot(., aes(parameters, Ti, fill = estimator)) +
   geom_bar(stat = "identity", 
-           position = position_dodge(0.5), 
+           position = position_dodge(0.7), 
            color = "black") +
   facet_grid(~Function, 
              scales = "free_x", 
@@ -293,9 +230,13 @@ lapply(ind, function(x) rbindlist(x, idcol = "Function")) %>%
   labs(x = "",
        y = expression(T[italic(i)])) +
   theme_AP() + 
-  theme(axis.text.x = element_text(size = 8))
+  theme(axis.text.x = element_text(size = 6.5), 
+        legend.position = "top")
 
-# CREATE METAFUNCTION ---------------------------------------------
+
+## ----functions_metafunction, cache=TRUE-------------------------------------
+
+# CREATE METAFUNCTION ---------------------------------------------------------
 
 function_list <- list(
   Linear = function(x) x,
@@ -309,6 +250,9 @@ function_list <- list(
   No.effect = function(x) x * 0, 
   Trigonometric = function(x) cos(x)
 )
+
+
+## ----plot_functions_metafunction, cache=TRUE, dependson="functions_metafunction", dev = "tikz", fig.height=2.7, fig.width=4.6, fig.cap="Functions used in the metafunction of @Becker2019."----
 
 # PLOT METAFUNCTION -----------------------------------------------------------
 
@@ -324,6 +268,14 @@ ggplot(data.frame(x = runif(100)), aes(x)) +
        y = expression(italic(y))) +
   theme_AP() + 
   theme(legend.position = "right")
+
+
+## ----source_cpp, warning = FALSE--------------------------------------------
+
+Rcpp::sourceCpp("vector_multiplication.cpp")
+
+
+## ----metafunction, cache=TRUE, dependson = "functions_metafunction", warning=FALSE----
 
 # DEFINE METAFUNCTION ---------------------------------------------------------
 
@@ -360,16 +312,22 @@ metafunction <- function(X) {
   return(Y)
 }
 
+
+## ----settings, cache=TRUE---------------------------------------------------
+
 # DEFINE SETTINGS -------------------------------------------------------------
 
-N <- 2 ^ 10
+N <- 2 ^ 10 # Sample size of sample matrix
 params <- c("k", "C") 
-N.high <- 2 ^ 13
+N.high <- 2 ^ 13 # Maximum sample size of the large sample matrix
+
+
+## ----sample_matrix, cache=TRUE, dependson="settings"------------------------
 
 # CREATE SAMPLE MATRIX --------------------------------------------------------
 
 mat <- randtoolbox::sobol(N, length(params))
-mat[, 1] <- floor(qunif(mat[, 1], 3, 150))
+mat[, 1] <- floor(qunif(mat[, 1], 3, 200))
 mat[, 2] <- floor(qunif(mat[, 2], 10, 2000))
 colnames(mat) <- params
 
@@ -381,6 +339,9 @@ sel <- c("N.all", "N.azzini")
 
 mat <- as.matrix(data.table(tmp)[, (sel):= lapply(.SD, function(x) 
   ifelse(x == 1, 2, x)), .SDcols = (sel)])
+
+
+## ----define_model, cache=TRUE, dependson=c("sample_matrices_functions", "metafunction", "ti_indices", "savage_scores")----
 
 # DEFINE MODEL ----------------------------------------------------------------
 
@@ -415,6 +376,9 @@ model_Ti <- function(k, N.all, N.azzini, N.high) {
   return(ind)
 }
 
+
+## ----model_run, cache=TRUE, dependson=c("define_model", "settings", "sample_matrix", "source_cpp")----
+
 # RUN MODEL -------------------------------------------------------------------
 
 Y.ti <- list()
@@ -424,6 +388,9 @@ for(i in 1:nrow(mat)) {
                         N.azzini = mat[[i, "N.azzini"]], 
                         N.high = N.high)
 }
+
+
+## ----arrange_output, cache=TRUE, dependson="model_run"----------------------
 
 # ARRANGE OUTPUT --------------------------------------------------------------
 
@@ -444,38 +411,77 @@ full_output <- merge(mt.dt, out_cor) %>%
                                ifelse(estimator %in% "monod", "Janon/Monod", 
                                       ifelse(estimator %in% "jansen", "Jansen", "Sobol'"))))]
 
+
+## ----export_output, cache=TRUE, dependson="arrange_output"------------------
+
+# EXPORT OUTPUT ---------------------------------------------------------------
+
+fwrite(out, "out.csv")
+
+
+## ----plot_full, cache=TRUE, dependson="arrange_output", dev = "tikz", fig.height=8, fig.width=4----
+
 # PLOT OUTPUT -----------------------------------------------------------------
 
+full.output <- full_output[, ratio:= Nt / k]
+
 # Scatterplot
-ggplot(full_output[correlation > 0], aes(Nt, k, color = correlation)) +
-  geom_point(size = 0.8) + 
+a <- ggplot(full_output[correlation > 0], aes(Nt, k, color = correlation)) +
+  geom_point(size = 0.6) + 
   scale_colour_gradientn(colours = c("purple", "red", "orange", "green"), 
                          name = expression(italic(r))) +
   scale_x_continuous(breaks = pretty_breaks(n = 3)) +
-  labs(x = expression(N[t]), 
+  labs(x = expression(italic(N[t])), 
        y = expression(italic(k))) + 
-  facet_grid(~estimator) + 
+  facet_wrap(~estimator, 
+             ncol = 1) + 
+  theme_AP() + 
+  theme(legend.position = "none")
+
+# Get legend
+legend <- get_legend(a + theme(legend.position = "top"))
+
+# Ratio
+b <- ggplot(full_output[correlation > 0], aes(ratio, correlation)) +
+  geom_point(alpha = 0.15, size = 0.6) +
+  facet_wrap(~estimator, 
+             ncol = 1) +
+  labs(x = expression(italic(N[t]/k)), 
+       y = expression(italic(r))) +
+  scale_x_log10() +
   theme_AP()
 
-# Boxplot
+# Merge plot
+bottom <- plot_grid(a, b, ncol = 2, labels = "auto")
+plot_grid(legend, bottom, ncol = 1, rel_heights = c(0.15, 1))
+
+
+## ----plot_boxplot, cache=TRUE, dependson="arrange_output", dev = "tikz", fig.width=4, fig.height=2.3----
+
+# PLOT BOXPLOT ----------------------------------------------------------------
+
 ggplot(full_output[correlation > 0], aes(estimator, correlation)) +
   geom_boxplot() + 
   labs(x = "", 
        y = expression(italic(r))) +
   theme_AP()
 
-# Ratio
-full_output[, ratio:= Nt / k]
-ggplot(full_output[correlation > 0], aes(ratio, correlation)) +
-  geom_point(alpha = 0.3, size = 0.6) +
-  facet_grid(~estimator) +
-  labs(x = expression(N[t]/k), 
-       y = expression(r)) +
-  scale_x_log10() +
-  theme_AP()
 
+## ----session_information----------------------------------------------------
 
+# SESSION INFORMATION ---------------------------------------------------------
 
+sessionInfo()
 
+## Return the machine CPU
+cat("Machine:     "); print(get_cpu()$model_name)
 
+## Return number of true cores
+cat("Num cores:   "); print(detectCores(logical = FALSE))
+
+## Return number of threads
+cat("Num threads: "); print(detectCores(logical = TRUE))
+
+## Return the machine RAM
+cat("RAM:         "); print (get_ram()); cat("\n")
 
