@@ -1,8 +1,8 @@
-## ----setup, include=FALSE---------------------------------------------------
+## ----setup, include=FALSE---------------------------------------------------------------------------------------------------------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
 
 
-## ----preliminary steps, results="hide", message=FALSE, warning=FALSE--------
+## ----preliminary steps, results="hide", message=FALSE, warning=FALSE--------------------------------------------------------------------------------------------
 
 # PRELIMINARY FUNCTIONS -------------------------------------------------------
 
@@ -41,7 +41,7 @@ checkpoint("2020-01-23",
            checkpointLocation = getwd())
 
 
-## ----sample_matrices_functions, cache=TRUE----------------------------------
+## ----sample_matrices_functions, cache=TRUE----------------------------------------------------------------------------------------------------------------------
 
 # FUNCTIONS TO CREATE SAMPLE MATRICES -----------------------------------------
 
@@ -116,7 +116,7 @@ sobol_matrices <- function(matrices = c("A", "B", "AB"),
 }
 
 
-## ----savage_scores, cache=TRUE----------------------------------------------
+## ----savage_scores, cache=TRUE----------------------------------------------------------------------------------------------------------------------------------
 
 # SAVAGE SCORES ---------------------------------------------------------------
 
@@ -130,7 +130,7 @@ savage_scores <- function(x) {
 }
 
 
-## ----ti_indices, cache=TRUE, dependson=c("savage_scores", "sample_matrices_functions")----
+## ----ti_indices, cache=TRUE, dependson=c("savage_scores", "sample_matrices_functions")--------------------------------------------------------------------------
 
 # COMPUTATION OF SOBOL' Ti INDICES --------------------------------------------
 
@@ -173,7 +173,7 @@ sobol_Ti <- function(d, N, params, total) {
 }
 
 
-## ----check_ti, cache=TRUE, dependson="ti_indices"---------------------------
+## ----check_ti, cache=TRUE, dependson="ti_indices"---------------------------------------------------------------------------------------------------------------
 
 # CHECK THAT ALL TI ESTIMATORS WORK -------------------------------------------
 
@@ -209,7 +209,7 @@ for(i in estimators) {
 }
 
 
-## ----plot_prove, cache=TRUE, dependson="check_ti", dev="tikz", fig.height=3, fig.width=6.5----
+## ----plot_prove, cache=TRUE, dependson="check_ti", dev="tikz", fig.height=3, fig.width=6.5----------------------------------------------------------------------
 
 # PLOT SENSITIVITY INDICES ----------------------------------------------------
 
@@ -234,7 +234,7 @@ lapply(ind, function(x) rbindlist(x, idcol = "Function")) %>%
         legend.position = "top")
 
 
-## ----functions_metafunction, cache=TRUE-------------------------------------
+## ----functions_metafunction, cache=TRUE-------------------------------------------------------------------------------------------------------------------------
 
 # CREATE METAFUNCTION ---------------------------------------------------------
 
@@ -270,12 +270,12 @@ ggplot(data.frame(x = runif(100)), aes(x)) +
   theme(legend.position = "right")
 
 
-## ----source_cpp, warning = FALSE--------------------------------------------
+## ----source_cpp, warning = FALSE--------------------------------------------------------------------------------------------------------------------------------
 
 Rcpp::sourceCpp("vector_multiplication.cpp")
 
 
-## ----metafunction, cache=TRUE, dependson = "functions_metafunction", warning=FALSE----
+## ----metafunction, cache=TRUE, dependson = "functions_metafunction", warning=FALSE------------------------------------------------------------------------------
 
 # DEFINE METAFUNCTION ---------------------------------------------------------
 
@@ -313,7 +313,7 @@ metafunction <- function(X) {
 }
 
 
-## ----settings, cache=TRUE---------------------------------------------------
+## ----settings, cache=TRUE---------------------------------------------------------------------------------------------------------------------------------------
 
 # DEFINE SETTINGS -------------------------------------------------------------
 
@@ -322,7 +322,7 @@ params <- c("k", "C")
 N.high <- 2 ^ 13 # Maximum sample size of the large sample matrix
 
 
-## ----sample_matrix, cache=TRUE, dependson="settings"------------------------
+## ----sample_matrix, cache=TRUE, dependson="settings"------------------------------------------------------------------------------------------------------------
 
 # CREATE SAMPLE MATRIX --------------------------------------------------------
 
@@ -341,7 +341,7 @@ mat <- as.matrix(data.table(tmp)[, (sel):= lapply(.SD, function(x)
   ifelse(x == 1, 2, x)), .SDcols = (sel)])
 
 
-## ----define_model, cache=TRUE, dependson=c("sample_matrices_functions", "metafunction", "ti_indices", "savage_scores")----
+## ----define_model, cache=TRUE, dependson=c("sample_matrices_functions", "metafunction", "ti_indices", "savage_scores")------------------------------------------
 
 # DEFINE MODEL ----------------------------------------------------------------
 
@@ -377,7 +377,7 @@ model_Ti <- function(k, N.all, N.azzini, N.high) {
 }
 
 
-## ----model_run, cache=TRUE, dependson=c("define_model", "settings", "sample_matrix", "source_cpp")----
+## ----model_run, cache=TRUE, dependson=c("define_model", "settings", "sample_matrix", "source_cpp")--------------------------------------------------------------
 
 # RUN MODEL -------------------------------------------------------------------
 
@@ -390,7 +390,7 @@ for(i in 1:nrow(mat)) {
 }
 
 
-## ----arrange_output, cache=TRUE, dependson="model_run"----------------------
+## ----arrange_output, cache=TRUE, dependson="model_run"----------------------------------------------------------------------------------------------------------
 
 # ARRANGE OUTPUT --------------------------------------------------------------
 
@@ -406,20 +406,20 @@ mt.dt <- data.table(mat) %>%
 
 full_output <- merge(mt.dt, out_cor) %>%
   .[, Nt:= ifelse(estimator == "azzini", N.azzini * (2 * k + 2), N.all * (k + 1))] %>%
-  .[, estimator:= ifelse(estimator %in% "azzini", "Azzini", 
-                        ifelse(estimator %in% "homma", "Homma",
+  .[, estimator:= ifelse(estimator %in% "azzini", "Azzini and Rosati", 
+                        ifelse(estimator %in% "homma", "Homma and Saltelli",
                                ifelse(estimator %in% "monod", "Janon/Monod", 
                                       ifelse(estimator %in% "jansen", "Jansen", "Sobol'"))))]
 
 
-## ----export_output, cache=TRUE, dependson="arrange_output"------------------
+## ----export_output, cache=TRUE, dependson="arrange_output"------------------------------------------------------------------------------------------------------
 
 # EXPORT OUTPUT ---------------------------------------------------------------
 
 fwrite(out, "out.csv")
 
 
-## ----plot_full, cache=TRUE, dependson="arrange_output", dev = "tikz", fig.height=8, fig.width=4----
+## ----plot_full, cache=TRUE, dependson="arrange_output", dev = "tikz", fig.height=8, fig.width=4-----------------------------------------------------------------
 
 # PLOT OUTPUT -----------------------------------------------------------------
 
@@ -456,18 +456,19 @@ bottom <- plot_grid(a, b, ncol = 2, labels = "auto")
 plot_grid(legend, bottom, ncol = 1, rel_heights = c(0.15, 1))
 
 
-## ----plot_boxplot, cache=TRUE, dependson="arrange_output", dev = "tikz", fig.width=4, fig.height=2.3----
+## ----plot_boxplot, cache=TRUE, dependson="arrange_output", dev = "tikz", fig.width=4, fig.height=3--------------------------------------------------------------
 
 # PLOT BOXPLOT ----------------------------------------------------------------
 
 ggplot(full_output[correlation > 0], aes(estimator, correlation)) +
   geom_boxplot() + 
   labs(x = "", 
-       y = expression(italic(r))) +
-  theme_AP()
+       y = expression(italic(r))) + 
+  theme_AP() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
-## ----session_information----------------------------------------------------
+## ----session_information----------------------------------------------------------------------------------------------------------------------------------------
 
 # SESSION INFORMATION ---------------------------------------------------------
 
@@ -485,7 +486,3 @@ cat("Num threads: "); print(detectCores(logical = TRUE))
 ## Return the machine RAM
 cat("RAM:         "); print (get_ram()); cat("\n")
 
-
-factorial(8) / (factorial(2) * (8 - 2))
-
-factorial(3) / (factorial(2) * factorial(3-2))
