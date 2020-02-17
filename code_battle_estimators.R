@@ -428,7 +428,7 @@ full.output <- full_output[, ratio:= Nt / k]
 # Scatterplot
 a <- ggplot(full_output[correlation > 0], aes(Nt, k, color = correlation)) +
   geom_point(size = 0.6) + 
-  scale_colour_gradientn(colours = c("purple", "red", "orange", "green"), 
+  scale_colour_gradientn(colours = c("purple", "red", "orange", "lightgreen"), 
                          name = expression(italic(r))) +
   scale_x_continuous(breaks = pretty_breaks(n = 3)) +
   labs(x = expression(italic(N[t])), 
@@ -485,3 +485,7 @@ cat("Num threads: "); print(detectCores(logical = TRUE))
 ## Return the machine RAM
 cat("RAM:         "); print (get_ram()); cat("\n")
 
+
+factorial(8) / (factorial(2) * (8 - 2))
+
+factorial(3) / (factorial(2) * factorial(3-2))

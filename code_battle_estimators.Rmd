@@ -511,8 +511,8 @@ mt.dt <- data.table(mat) %>%
 
 full_output <- merge(mt.dt, out_cor) %>%
   .[, Nt:= ifelse(estimator == "azzini", N.azzini * (2 * k + 2), N.all * (k + 1))] %>%
-  .[, estimator:= ifelse(estimator %in% "azzini", "Azzini", 
-                        ifelse(estimator %in% "homma", "Homma",
+  .[, estimator:= ifelse(estimator %in% "azzini", "Azzini and Rosati", 
+                        ifelse(estimator %in% "homma", "Homma and Saltelli",
                                ifelse(estimator %in% "monod", "Janon/Monod", 
                                       ifelse(estimator %in% "jansen", "Jansen", "Sobol'"))))]
 ```
@@ -533,7 +533,7 @@ full.output <- full_output[, ratio:= Nt / k]
 # Scatterplot
 a <- ggplot(full_output[correlation > 0], aes(Nt, k, color = correlation)) +
   geom_point(size = 0.6) + 
-  scale_colour_gradientn(colours = c("purple", "red", "orange", "green"), 
+  scale_colour_gradientn(colours = c("purple", "red", "orange", "lightgreen"), 
                          name = expression(italic(r))) +
   scale_x_continuous(breaks = pretty_breaks(n = 3)) +
   labs(x = expression(italic(N[t])), 
@@ -561,15 +561,16 @@ bottom <- plot_grid(a, b, ncol = 2, labels = "auto")
 plot_grid(legend, bottom, ncol = 1, rel_heights = c(0.15, 1))
 ```
 
-```{r plot_boxplot, cache=TRUE, dependson="arrange_output", dev = "tikz", fig.width=4, fig.height=2.3}
+```{r plot_boxplot, cache=TRUE, dependson="arrange_output", dev = "tikz", fig.width=4, fig.height=3}
 
 # PLOT BOXPLOT ----------------------------------------------------------------
 
 ggplot(full_output[correlation > 0], aes(estimator, correlation)) +
   geom_boxplot() + 
   labs(x = "", 
-       y = expression(italic(r))) +
-  theme_AP()
+       y = expression(italic(r))) + 
+  theme_AP() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 # Session information
