@@ -1,4 +1,4 @@
-#include <Rcpp.h>
+#include <RcppArmadillo.h>
 using namespace Rcpp;
 
 // This is a simple example of exporting a C++ function to R. You can
@@ -11,34 +11,17 @@ using namespace Rcpp;
 //   http://gallery.rcpp.org/
 //
 
+// [[Rcpp::depends(RcppArmadillo)]]
+
 // [[Rcpp::export]]
-NumericMatrix mmult( NumericMatrix m , NumericVector v , bool byrow = true ){
-  if(byrow);
-  if(! m.nrow() == v.size()) stop("Non-conformable arrays") ;
-  if( ! byrow );
-  if(! m.ncol() == v.size()) stop("Non-conformable arrays") ;
-  
-  NumericMatrix out(m) ;
-  
-  if(byrow){
-    for (int j = 0; j < m.ncol(); j++) {
-      for (int i = 0; i < m.nrow(); i++) {
-        out(i,j) = m(i,j) * v[j];
-      }
-    }
-  }
-  if(! byrow){
-    for (int i = 0; i < m.nrow(); i++) {
-      for (int j = 0; j < m.ncol(); j++) {
-        out(i,j) = m(i,j) * v[i];
-      }
-    }
-  }
-  return out ;
+arma::mat mmult(arma::mat A, arma::rowvec x) { 
+  A.each_row() %= x;
+  return A;
 }
 
 // You can include R code blocks in C++ files processed with sourceCpp
 // (useful for testing and development). The R code will be automatically 
 // run after the compilation.
 //
+
 
