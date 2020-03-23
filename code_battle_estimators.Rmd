@@ -507,19 +507,45 @@ A <- full_output[,.SD[1:N], estimator]
 ```{r export_output, cache=TRUE, dependson="arrange_output"}
 
 # EXPORT OUTPUT --------------------------------------------------------------------
-
+fwrite(A, "A.csv")
 fwrite(out, "out.csv")
 ```
 
 # Uncertainty analysis
 
-```{r plot_full, cache=TRUE, dependson="arrange_output", fig.height=8, fig.width=4}
+```{r plot_full, cache=TRUE, dependson="arrange_output", fig.height=8, fig.width=5.2}
 
 # PLOT OUTPUT ----------------------------------------------------------------------
+# Compute median and quantiles
+dt_median <- A[correlation > 0, .(median = median(correlation), 
+                                  low.ci = quantile(correlation, 0.25), 
+                                  high.ci = quantile(correlation, 0.75)), estimator]
+
+a <- ggplot(A[correlation > 0], aes(correlation)) +
+  geom_rect(data = dt_median,
+            aes(xmin = low.ci,
+                xmax = high.ci,
+                ymin = -Inf,
+                ymax = Inf),
+            fill = "blue",
+            color = "white",
+            alpha = 0.1,
+            inherit.aes = FALSE) +
+  geom_histogram() + 
+  geom_vline(data = dt_median, aes(xintercept = median), 
+             lty = 2, 
+             color = "red") +
+  facet_wrap(~estimator, 
+             ncol = 1) +
+  scale_x_continuous(breaks = pretty_breaks(n = 3)) +
+  labs(x = expression(italic(r)), 
+       y = "Counts") + 
+  theme_AP() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 # Scatterplot
-a <- ggplot(A[correlation > 0], aes(Nt, k, color = correlation)) +
-  geom_point(size = 0.3) + 
+b <- ggplot(A[correlation > 0], aes(Nt, k, color = correlation)) +
+  geom_point(size = 0.15) + 
   scale_colour_gradientn(colours = c("purple", "red", "orange", "lightgreen"), 
                          name = expression(italic(r))) +
   scale_x_continuous(breaks = pretty_breaks(n = 3)) +
@@ -531,11 +557,11 @@ a <- ggplot(A[correlation > 0], aes(Nt, k, color = correlation)) +
   theme(legend.position = "none")
 
 # Get legend
-legend <- get_legend(a + theme(legend.position = "top"))
+legend <- get_legend(b + theme(legend.position = "top"))
 
 # Ratio
-b <- ggplot(A[correlation > 0], aes(ratio, correlation)) +
-  geom_point(alpha = 0.15, size = 0.6) +
+c <- ggplot(A[correlation > 0], aes(ratio, correlation)) +
+  geom_point(alpha = 0.1, size = 0.2) +
   facet_wrap(~estimator, 
              ncol = 1) +
   labs(x = expression(italic(N[t]/k)), 
@@ -544,8 +570,8 @@ b <- ggplot(A[correlation > 0], aes(ratio, correlation)) +
   theme_AP()
 
 # Merge plot
-bottom <- plot_grid(a, b, ncol = 2, labels = "auto")
-plot_grid(legend, bottom, ncol = 1, rel_heights = c(0.15, 1))
+bottom <- plot_grid(a, b, c, ncol = 3, labels = "auto")
+plot_grid(legend, bottom, ncol = 1, rel_heights = c(0.1, 1))
 ```
 
 ```{r plot_boxplot, cache=TRUE, dependson="arrange_output", fig.width=4, fig.height=3}
