@@ -511,6 +511,8 @@ A <- full_output[,.SD[1:N], estimator]
 fwrite(out, "out.csv")
 ```
 
+# Uncertainty analysis
+
 ```{r plot_full, cache=TRUE, dependson="arrange_output", fig.height=8, fig.width=4}
 
 # PLOT OUTPUT ----------------------------------------------------------------------
@@ -546,7 +548,7 @@ bottom <- plot_grid(a, b, ncol = 2, labels = "auto")
 plot_grid(legend, bottom, ncol = 1, rel_heights = c(0.15, 1))
 ```
 
-```{r plot_boxplot, cache=TRUE, dependson="arrange_output", dev = "tikz", fig.width=4, fig.height=3}
+```{r plot_boxplot, cache=TRUE, dependson="arrange_output", fig.width=4, fig.height=3}
 
 # PLOT BOXPLOT ---------------------------------------------------------------------
 
@@ -577,7 +579,7 @@ indices <- full_output[, sobol_indices(Y = correlation,
                        estimator]
 ```
 
-```{r plot_sobol_indices, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=8, fig.width=2.5, dev = "tikz"}
+```{r plot_sobol_indices, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=8, fig.width=2.5}
 
 # PLOT SOBOL' INDICES --------------------------------------------------------------
 
@@ -594,13 +596,20 @@ ggplot(indices, aes(parameters, original, fill = sensitivity)) +
   geom_errorbar(aes(ymin = low.ci, 
                     ymax = high.ci), 
                 position = position_dodge(0.6)) +
+  scale_x_discrete(labels = c(expression(N[italic(t)]), 
+                              expression(italic(k)), 
+                              expression(italic(k[2])), 
+                              expression(italic(k[3])),
+                              expression(epsilon), 
+                              expression(phi), 
+                              expression(delta))) +
   facet_wrap(~estimator, 
              ncol = 1) +
   labs(x = "", 
        y = "Sobol' index") +
   scale_fill_discrete(name = "Sobol' indices", 
-                      labels = c(expression(S[i]), 
-                                 expression(T[i]))) +
+                      labels = c(expression(S[italic(i)]), 
+                                 expression(T[italic(i)]))) +
   theme_AP() +
   theme(legend.position = "top")
 ```
