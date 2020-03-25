@@ -113,7 +113,8 @@ We define here all the $T_i$ estimators we will analyze in our study: @Jansen199
 sobol_Ti <- function(d, N, params, total) {
   m <- matrix(d, nrow = N)
   k <- length(params)
-  if(!total == "azzini") {
+  if(total == "jansen" | total == "homma" | total == "sobol" | total == "monod" |
+     total == "glen") {
     Y_A <- m[, 1]
     Y_AB <- m[, -1]
     f0 <- (1 / length(Y_A)) * sum(Y_A)
@@ -132,15 +133,25 @@ sobol_Ti <- function(d, N, params, total) {
                   (1/ N * Rfast::colsums((Y_A + Y_AB) / 2)) ^ 2) / 
       (1 / N * Rfast::colsums((Y_A ^ 2 + Y_AB ^ 2) / 2) - 
          (1/ N * Rfast::colsums((Y_A + Y_AB) / 2)) ^ 2)
+  } else if(total == "glen") {
+    Ti <- 1 - (1 / (N - 1) * 
+                 Rfast::colsums(((Y_A - mean(Y_A)) * (Y_AB - Rfast::colmeans(Y_AB))) / 
+                                  sqrt(var(Y_A) * Rfast::colVars(Y_AB))))
   }
-  if(total == "azzini") {
+  if(total == "azzini" | total == "lamboni") {
     Y_A <- m[, 1]
     Y_B <- m[, 2]
     Y_AB <- m[, 3:(3 + k - 1)]
     Y_BA <- m[, (ncol(m) - k + 1):ncol(m)]
+    f0 <- 1 / (2 * N) * sum(Y_A + Y_B)
+    VY <- 1 / (2 * N - 1) * sum((Y_A - f0) ^ 2 + (Y_B - f0) ^ 2)
+  }
+  if(total == "azzini") {
     Ti <- 1 - abs(Rfast::colsums((Y_A - Y_BA) * (Y_B - Y_AB)) / 
-                     (1 / 2 * Rfast::colsums((Y_A - Y_B) ^ 2 + (Y_AB - Y_BA) ^ 2)))
-  } 
+                    (1 / 2 * Rfast::colsums((Y_A - Y_B) ^ 2 + (Y_AB - Y_BA) ^ 2)))
+  } else if(total == "lamboni") {
+    Ti <- (1 / (4 * N) * Rfast::colsums((Y_A - Y_AB) ^ 2 + (Y_B - Y_BA) ^ 2)) / VY
+    }
   output <- data.table(Ti)
   output[, `:=`(parameters = paste("X", 1:k, sep = ""))]
   return(output)
@@ -152,7 +163,7 @@ sobol_Ti <- function(d, N, params, total) {
 # CHECK THAT ALL TI ESTIMATORS WORK ------------------------------------------------
 
 # Settings
-estimators <- c("jansen", "sobol", "homma", "azzini", "monod")
+estimators <- c("jansen", "sobol", "homma", "azzini", "monod", "lamboni", "glen")
 test_functions <- c("Ishigami", "Sobol'G", "Morris")
 N <- 2^9
 
@@ -160,7 +171,7 @@ N <- 2^9
 ind <- Y <- mt <- list() 
 for(i in estimators) {
   for(j in test_functions) {
-    if(!i == "azzini") {
+    if(i == "jansen" | i == "sobol" | i == "homma" | i == "monod" | i == "glen") {
       matrices <- c("A", "AB")
     } else {
       matrices <- c("A", "B", "AB", "BA")
@@ -200,7 +211,8 @@ lapply(ind, function(x) rbindlist(x, idcol = "Function")) %>%
              space = "free_x") +
   scale_fill_discrete(name = expression(paste("Sobol' ", T[italic(i)])),
                       labels = c("Azzini", "Homma", "Jansen", 
-                                 "Monod", "Sobol")) +
+                                 "Lamboni", "Janon / Monod", "Sobol", 
+                                 "Glen and Isaacs")) +
   labs(x = "",
        y = expression(T[italic(i)])) +
   theme_AP() + 
@@ -400,7 +412,7 @@ This section codes the model, which works as follows:
 
 model_Ti <- function(k, N.all, N.azzini, N.high, k_2, k_3, epsilon, phi, delta) {
   ind <- list()
-  estimators <- c("jansen", "sobol", "homma", "monod", "azzini")
+  estimators <- c("jansen", "sobol", "homma", "monod", "azzini", "lamboni", "glen")
   all.but.azzini <- sobol_matrices(N = N.all, params = paste("X", 1:k, sep = ""), 
                                    matrices = c("A", "AB"))
   azzini <- sobol_matrices(N = N.azzini, params = paste("X", 1:k, sep = ""), 
@@ -420,7 +432,7 @@ model_Ti <- function(k, N.all, N.azzini, N.high, k_2, k_3, epsilon, phi, delta) 
                        total = "jansen")
   full.ind[, sample.size:= "N"]
   for(i in estimators) {
-    if(!i == "azzini") {
+    if(i == "jansen" | i == "sobol" | i == "homma" | i == "monod" | i == "glen") {
       y <- output[1:nrow(all.but.azzini)]
       n <- N.all
     } else {
@@ -493,11 +505,13 @@ mt.dt <- data.table(mat) %>%
   .[, row:= 1:.N]
 
 full_output <- merge(mt.dt, out_cor) %>%
-  .[, Nt:= ifelse(estimator == "azzini", N.azzini * (2 * k + 2), N.all * (k + 1))] %>%
+  .[, Nt:= ifelse(estimator == "azzini" | estimator == "lamboni", N.azzini * (2 * k + 2), N.all * (k + 1))] %>%
   .[, estimator:= ifelse(estimator %in% "azzini", "Azzini and Rosati", 
                         ifelse(estimator %in% "homma", "Homma and Saltelli",
                                ifelse(estimator %in% "monod", "Janon/Monod", 
-                                      ifelse(estimator %in% "jansen", "Jansen", "Sobol'"))))] %>%
+                                      ifelse(estimator %in% "jansen", "Jansen", 
+                                             ifelse(estimator %in% "glen", "Glen and Isaac", 
+                                                    ifelse(estimator %in% "lamboni", "Lamboni", "Sobol'"))))))] %>%
   .[, ratio:= Nt / k]
 
 # Define A matrix
@@ -508,7 +522,7 @@ A <- full_output[,.SD[1:N], estimator]
 
 # EXPORT OUTPUT --------------------------------------------------------------------
 fwrite(A, "A.csv")
-fwrite(out, "out.csv")
+fwrite(full_output, "full_output.csv")
 ```
 
 # Uncertainty analysis
@@ -647,6 +661,13 @@ ggplot(indices, aes(parameters, original, fill = sensitivity)) +
 indices[sensitivity == "Si", sum(original), estimator]
 ```
 
+```{r export_indices, cache=TRUE, dependson="sensitivity_analysis"}
+
+# EXPORT SOBOL' INDICES -------------------------------------------------------
+
+fwrite(indices, "indices.csv")
+
+```
 \newpage 
 
 # Session information
