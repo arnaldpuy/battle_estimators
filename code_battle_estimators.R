@@ -1,8 +1,8 @@
-## ----setup, include=FALSE-----------------------------------------------------------
+## ----setup, include=FALSE--------------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
 
 
-## ----preliminary steps, results="hide", message=FALSE, warning=FALSE----------------
+## ----preliminary steps, results="hide", message=FALSE, warning=FALSE----
 
 # PRELIMINARY FUNCTIONS -------------------------------------------------------
 
@@ -45,7 +45,7 @@ checkpoint("2020-01-23",
            checkpointLocation = getwd())
 
 
-## ----savage_scores, cache=TRUE------------------------------------------------------
+## ----savage_scores, cache=TRUE---------------------------------------
 
 # SAVAGE SCORES --------------------------------------------------------------------
 
@@ -59,7 +59,7 @@ savage_scores <- function(x) {
 }
 
 
-## ----ti_indices, cache=TRUE, dependson="savage_scores"------------------------------
+## ----ti_indices, cache=TRUE, dependson="savage_scores"---------------
 
 # COMPUTATION OF SOBOL' Ti INDICES -------------------------------------------------
 
@@ -111,7 +111,7 @@ sobol_Ti <- function(d, N, params, total) {
 }
 
 
-## ----check_ti, cache=TRUE, dependson="ti_indices"-----------------------------------
+## ----check_ti, cache=TRUE, dependson="ti_indices"--------------------
 
 # CHECK THAT ALL TI ESTIMATORS WORK ------------------------------------------------
 
@@ -173,9 +173,7 @@ lapply(ind, function(x) rbindlist(x, idcol = "Function")) %>%
         legend.position = "top")
 
 
-
-
-## ----functions_metafunction, cache=TRUE---------------------------------------------
+## ----functions_metafunction, cache=TRUE------------------------------
 
 # CREATE METAFUNCTION --------------------------------------------------------------
 
@@ -213,7 +211,7 @@ a <- ggplot(data.frame(x = runif(100)), aes(x)) +
 a
 
 
-## ----function_distributions, cache=TRUE---------------------------------------------
+## ----function_distributions, cache=TRUE------------------------------
 
 # CREATE FUNCTION FOR RANDOM DISTRIBUTIONS -----------------------------------------
 
@@ -293,11 +291,11 @@ Y <- metafunction(data = A, k_2 = k_2, k_3 = k_3, epsilon = epsilon)
 ind <- sobol_indices(Y = Y, N = N, params = params, R = R, boot = TRUE)
 
 
-## ----settings, cache=TRUE-----------------------------------------------------------
+## ----settings, cache=TRUE--------------------------------------------
 
 # DEFINE SETTINGS ------------------------------------------------------------------
 
-N <- 2 ^ 4 # Sample size of sample matrix
+N <- 2 ^ 11 # Sample size of sample matrix
 R <- 500 # Number of bootstrap replicas
 n_cores <- ceiling(detectCores() * 0.5)
 order <- "first"
@@ -305,7 +303,7 @@ params <- c("k", "N_t", "k_2", "k_3", "epsilon", "phi", "delta")
 N.high <- 2 ^ 11 # Maximum sample size of the large sample matrix
 
 
-## ----sample_matrix, cache=TRUE, dependson="settings"--------------------------------
+## ----sample_matrix, cache=TRUE, dependson="settings"-----------------
 
 # CREATE SAMPLE MATRIX -------------------------------------------------------------
 
@@ -411,7 +409,7 @@ Y.ti <- foreach(i=1:nrow(mat),
 stopCluster(cl)
 
 
-## ----arrange_output, cache=TRUE, dependson="model_run"------------------------------
+## ----arrange_output, cache=TRUE, dependson="model_run"---------------
 
 # ARRANGE OUTPUT -------------------------------------------------------------------
 
@@ -434,11 +432,11 @@ full_output <- merge(mt.dt, out_cor) %>%
 A <- full_output[,.SD[1:N], estimator]
 
 
-## ----export_output, cache=TRUE, dependson="arrange_output"--------------------------
+## ----export_output, cache=TRUE, dependson="arrange_output"-----------
 
 # EXPORT OUTPUT --------------------------------------------------------------------
 fwrite(A, "A.csv")
-fwrite(out, "out.csv")
+fwrite(full_output, "full_output.csv")
 
 
 ## ----plot_full, cache=TRUE, dependson="arrange_output", fig.height=8, fig.width=5.2----
@@ -448,9 +446,6 @@ fwrite(out, "out.csv")
 dt_median <- A[correlation > 0, .(median = median(correlation), 
                                   low.ci = quantile(correlation, 0.25), 
                                   high.ci = quantile(correlation, 0.75)), estimator]
-
-A[correlation > 0, .(quantile(correlation, c(0.01, 0.05, 0.1, 0.25, 0.5, 
-                                             0.75, 0.95, 0.99))), estimator]
 
 a <- ggplot(A[correlation > 0], aes(correlation)) +
   geom_rect(data = dt_median,
@@ -569,14 +564,22 @@ ggplot(indices, aes(parameters, original, fill = sensitivity)) +
   theme(legend.position = "top")
 
 
-## ----sum_si, cache=TRUE, dependson="sensitivity_analysis"---------------------------
+## ----sum_si, cache=TRUE, dependson="sensitivity_analysis"------------
 
 # SUM OF FIRST-ORDER INDICES -------------------------------------------------------
 
 indices[sensitivity == "Si", sum(original), estimator]
 
 
-## ----session_information------------------------------------------------------------
+## ----export_indices, cache=TRUE, dependson="sensitivity_analysis"----
+
+# EXPORT SOBOL' INDICES -------------------------------------------------------
+
+fwrite(indices, "indices.csv")
+
+
+
+## ----session_information---------------------------------------------
 
 # SESSION INFORMATION ---------------------------------------------------------
 
@@ -594,163 +597,3 @@ cat("Num threads: "); print(detectCores(logical = TRUE))
 ## Return the machine RAM
 cat("RAM:         "); print (get_ram()); cat("\n")
 
-
-
-sensobol::sobol_matrices()
-
-
-
-######################################
-# NEW ESTIMATORS #####################
-######################################
-
-N <- 1000
-params <- paste("X", 1:8, sep = "")
-mat <- sensobol::sobol_matrices(N = N, params = params, 
-                                matrices = c("A", "B", "AB", "BA"))
-Y <- sensobol::sobol_Fun(mat)
-
-
-k <- length(params)
-m <- matrix(Y, nrow = N)
-
-# ESTIMATE LAMBONI --------------------------------------------------
-
-# It requires an A, B, AB and BA matrices
-Y_A <- m[, 1]
-Y_B <- m[, 2]
-Y_AB <- m[, 3:(3 + k - 1)]
-Y_BA <- m[, (ncol(m) - k + 1):ncol(m)]
-f0 <- 1 / (2 * N) * sum(Y_A + Y_B)
-VY <- 1 / (2 * N - 1) * sum((Y_A - f0) ^ 2 + (Y_B - f0) ^ 2)
-
- (1 / (4 * N) * Rfast::colsums((Y_A - Y_AB) ^ 2 + (Y_B - Y_BA) ^ 2)) / VY
-
-
-# ESTIMATE GLEN AND ISAAC -------------------------------------------
-N <- 1000
-params <- paste("X", 1:8, sep = "")
-mat <- sensobol::sobol_matrices(N = N, params = params, 
-                                matrices = c("A", "AB"))
-Y <- sensobol::sobol_Fun(mat)
-m <- matrix(Y, nrow = N)
-
-Y_A <- m[, 1]
-Y_AB <- m[, -1]
-
-
-
-1 - (1 / (N - 1) * Rfast::colsums(((Y_A - mean(Y_A)) * (Y_AB - Rfast::colmeans(Y_AB))) / 
-  sqrt(var(Y_A) * Rfast::colVars(Y_AB))))
-
-
-
-colVars()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-n <- 5
-k <- 3
-mat <- randtoolbox::sobol(n = n, dim = k * 3)
-
-n <- 1000
-X1 <- data.frame(mat[, 1:k])
-X2 <- data.frame(mat[, (k + 1):(k * 2)])
-X3 <- data.frame(mat[, ((k * 2) + 1): (k * 3)])
-
-
-p <- ncol(X1)
-
-X <- rbind(X1, X2)
-for (i in 1:p) {
-  Xb <- X1
-  Xb[,i] <- X3[,i]
-  X <- rbind(X, Xb)
-}
-for (i in 1:p) {
-  Xb <- X2
-  Xb[,i] <- X1[,i]
-  X <- rbind(X, Xb)
-}
-for (i in 1:p) {
-  Xb <- X3
-  Xb[,i] <- X2[,i]
-  X <- rbind(X, Xb)
-}
-
-Y <- sensobol::ishigami_Fun(X)
-d <- as.matrix(data[1:nrow(X1), ]) # as.matrix for colSums
-n <- nrow(d)
-p <- (ncol(d)-2)/3
-
-
-
-(colSums((d[, 1] - d[, 3:(2+p)])*(d[, (3+p):(2+2*p)] - d[,2])) / n)
-
-
-
-
-
-
-data <- matrix(Y, nrow = n) 
-
-n <- nrow(d)
-p <- (ncol(d)-2)/3
-V <- numeric(0)
-for (k in 1:p) {
-  V[k] <- mean(apply(data[,c(1,2,2+k,2+k+p)]^2,1, mean))-(mean(apply(data[,c(1,2,2+k,2+k+p)],1,mean)))^2
-}
-VCE <- (colSums((data[,1] - data[, 3:(2+p)])*(data[, (3+p):(2+2*p)] - data[,2])) / n)
-VCE.compl <- V - (colSums((data[,2] - data[, (3+2*p):(2+3*p)])*(data[, (3+p):(2+2*p)] - data[,1])) / n)
-S <- V[(k + 1):(p + k), 1, drop = FALSE] / V[1:k,1]
-T <- V[(p + k + 1):(2 * p + k), 1, drop = FALSE] / V[1:k,1]
-
-# as.matrix for colSums
-n <- nrow(d)
-p <- (ncol(d)-2)/3
-
-
-
-
-# sensitivity analysis
-
-
-x <- sensitivity::sobolowen(model = sensitivity::sobol.fun, X1 = A, X2 = B, X3 = C, nboot = 100)
-print(x)
-library(sensitivity)
-
-x$T$original
