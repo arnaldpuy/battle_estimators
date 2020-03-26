@@ -629,6 +629,28 @@ ggplot(A[correlation > 0], aes(estimator, correlation)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
+```{r plot_medians, cache=TRUE, dependson="arrange_output", fig.width=4.5, fig.height=3}
+
+# PLOT MEDIANS ---------------------------------------------------------------------
+
+dt.tmp <- A[, .(min = min(ratio), max = max(ratio))]
+
+v <-  seq(10, ceiling(dt.tmp$max), 10)
+
+dt.plot <- lapply(v, function(v) A[ratio < v])
+
+# Plot
+lapply(dt.plot, function(x) x[, median(correlation, na.rm = TRUE), estimator]) %>%
+  rbindlist(., idcol = "N") %>%
+  .[, N:= as.numeric(N)] %>%
+  ggplot(., aes(N, V1, group = estimator, color = estimator)) +
+  geom_line() + 
+  labs(x = expression(italic(N[t]/k)),
+       y = expression(median(italic(r)))) +
+  scale_color_discrete(name = "Estimator") +
+  theme_AP()
+```
+
 # Sensitivity analysis
 
 ```{r sensitivity_analysis, cache=TRUE, dependson=c("arrange_output", "sobol_indices")}

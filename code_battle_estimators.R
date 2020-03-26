@@ -202,7 +202,7 @@ function_list <- list(
 )
 
 
-## ----plot_functions_metafunction, cache=TRUE, dependson="functions_metafunction", dev = "tikz", fig.height=2.7, fig.width=4.6, fig.cap="Functions used in the metafunction of @Becker2019."----
+## ----plot_functions_metafunction, cache=TRUE, dependson="functions_metafunction", fig.height=2.7, fig.width=4.6, fig.cap="Functions used in the metafunction of @Becker2019."----
 
 # PLOT METAFUNCTION ----------------------------------------------------------------
 
@@ -249,7 +249,7 @@ random_distributions <- function(X, phi) {
 }
 
 
-## ----plot_function_distributions, cache=TRUE, dependson=c("function_distributions", "function_distributions"), dev = "tikz", fig.height=2.7, fig.width=4.6, fig.cap="Distributions used in the metafunction of @Becker2019."----
+## ----plot_function_distributions, cache=TRUE, dependson=c("function_distributions", "function_distributions"), fig.height=2.7, fig.width=4.6, fig.cap="Distributions used in the metafunction of @Becker2019."----
 
 # PLOT DISTRIBUTIONS ---------------------------------------------------------------
 
@@ -262,13 +262,13 @@ out <- data.table(sapply(seq_along(names_ff), function(x)
 b <- data.table::melt(out) %>%
   ggplot(., aes(value, group = variable, colour = variable)) + 
   geom_density() + 
-  scale_color_discrete(labels = c("$U(0, 1)$", 
-                                  "$\\mathcal{N}(0.5, 0.2)$", 
-                                  "$Beta(8, 2)$", 
-                                  "$Beta(2, 8)$", 
-                                  "$Beta(2, 0.5)$", 
-                                  "$Beta(0.5, 2)$", 
-                                  "$Logitnormal(0, 3.16)$"), 
+  scale_color_discrete(labels = c("U(0, 1)", 
+                                  "N(0.5, 0.2)", 
+                                  "Beta(8, 2)", 
+                                  "Beta(2, 8)", 
+                                  "Beta(2, 0.5)", 
+                                  "Beta(0.5, 2)", 
+                                  "Logitnormal(0, 3.16)"), 
                        name = "") +
   labs(x = expression(italic(x)), 
        y = "Density") +
@@ -277,7 +277,7 @@ b <- data.table::melt(out) %>%
 b
 
 
-## ----metafunctions_distributions, cache=TRUE, dependson=c("functions_metafunction", "function_distributions", "plot_functions_metafunction", "plot_function_distributions"), dev="tikz", fig.height=5, fig.width=4.6----
+## ----metafunctions_distributions, cache=TRUE, dependson=c("functions_metafunction", "function_distributions", "plot_functions_metafunction", "plot_function_distributions"), fig.height=5, fig.width=4.6----
 
 # MERGE METAFUNCTION PLOT AND DISTRIBUTIONS PLOT -----------------------------------
 
@@ -539,6 +539,28 @@ ggplot(A[correlation > 0], aes(estimator, correlation)) +
        y = expression(italic(r))) + 
   theme_AP() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+## ----plot_medians, cache=TRUE, dependson="arrange_output", fig.width=4.5, fig.height=3-------------
+
+# PLOT MEDIANS ---------------------------------------------------------------------
+
+dt.tmp <- A[, .(min = min(ratio), max = max(ratio))]
+
+v <-  seq(10, ceiling(dt.tmp$max), 10)
+
+dt.plot <- lapply(v, function(v) A[ratio < v])
+
+# Plot
+lapply(dt.plot, function(x) x[, median(correlation, na.rm = TRUE), estimator]) %>%
+  rbindlist(., idcol = "N") %>%
+  .[, N:= as.numeric(N)] %>%
+  ggplot(., aes(N, V1, group = estimator, color = estimator)) +
+  geom_line() + 
+  labs(x = expression(italic(N[t]/k)),
+       y = expression(median(italic(r)))) +
+  scale_color_discrete(name = "Estimator") +
+  theme_AP()
 
 
 ## ----sensitivity_analysis, cache=TRUE, dependson=c("arrange_output", "sobol_indices")--------------
