@@ -253,7 +253,7 @@ function_list <- list(
 )
 ```
 
-```{r plot_functions_metafunction, cache=TRUE, dependson="functions_metafunction", dev = "tikz", fig.height=2.7, fig.width=4.6, fig.cap="Functions used in the metafunction of @Becker2019."}
+```{r plot_functions_metafunction, cache=TRUE, dependson="functions_metafunction", fig.height=2.7, fig.width=4.6, fig.cap="Functions used in the metafunction of @Becker2019."}
 
 # PLOT METAFUNCTION ----------------------------------------------------------------
 
@@ -300,7 +300,7 @@ random_distributions <- function(X, phi) {
 }
 ```
 
-```{r plot_function_distributions, cache=TRUE, dependson=c("function_distributions", "function_distributions"), dev = "tikz", fig.height=2.7, fig.width=4.6, fig.cap="Distributions used in the metafunction of @Becker2019."}
+```{r plot_function_distributions, cache=TRUE, dependson=c("function_distributions", "function_distributions"), fig.height=2.7, fig.width=4.6, fig.cap="Distributions used in the metafunction of @Becker2019."}
 
 # PLOT DISTRIBUTIONS ---------------------------------------------------------------
 
@@ -313,13 +313,13 @@ out <- data.table(sapply(seq_along(names_ff), function(x)
 b <- data.table::melt(out) %>%
   ggplot(., aes(value, group = variable, colour = variable)) + 
   geom_density() + 
-  scale_color_discrete(labels = c("$U(0, 1)$", 
-                                  "$\\mathcal{N}(0.5, 0.2)$", 
-                                  "$Beta(8, 2)$", 
-                                  "$Beta(2, 8)$", 
-                                  "$Beta(2, 0.5)$", 
-                                  "$Beta(0.5, 2)$", 
-                                  "$Logitnormal(0, 3.16)$"), 
+  scale_color_discrete(labels = c("U(0, 1)", 
+                                  "N(0.5, 0.2)", 
+                                  "Beta(8, 2)", 
+                                  "Beta(2, 8)", 
+                                  "Beta(2, 0.5)", 
+                                  "Beta(0.5, 2)", 
+                                  "Logitnormal(0, 3.16)"), 
                        name = "") +
   labs(x = expression(italic(x)), 
        y = "Density") +
@@ -328,7 +328,7 @@ b <- data.table::melt(out) %>%
 b
 ```
 
-```{r metafunctions_distributions, cache=TRUE, dependson=c("functions_metafunction", "function_distributions", "plot_functions_metafunction", "plot_function_distributions"), dev="tikz", fig.height=5, fig.width=4.6}
+```{r metafunctions_distributions, cache=TRUE, dependson=c("functions_metafunction", "function_distributions", "plot_functions_metafunction", "plot_function_distributions"), fig.height=5, fig.width=4.6}
 
 # MERGE METAFUNCTION PLOT AND DISTRIBUTIONS PLOT -----------------------------------
 
