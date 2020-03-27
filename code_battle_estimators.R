@@ -488,7 +488,7 @@ a <- ggplot(A[correlation > 0], aes(correlation)) +
              lty = 2, 
              color = "red") +
   facet_wrap(~estimator, 
-             ncol = 1) +
+             ncol = 3) +
   scale_x_continuous(breaks = pretty_breaks(n = 3)) +
   scale_y_continuous(breaks = pretty_breaks(n = 3)) +
   labs(x = expression(italic(r)), 
@@ -506,9 +506,9 @@ b <- ggplot(A[correlation > 0], aes(Nt, k, color = correlation)) +
   labs(x = expression(italic(N[t])), 
        y = expression(italic(k))) + 
   facet_wrap(~estimator, 
-             ncol = 1) + 
+             ncol = 3) + 
   theme_AP() + 
-  theme(legend.position = "none")
+  theme(legend.position = "top")
 
 # Get legend
 legend <- get_legend(b + theme(legend.position = "top"))
@@ -525,9 +525,7 @@ c <- ggplot(A[correlation > 0], aes(ratio, correlation)) +
   theme_AP()
 
 # Merge plot
-bottom <- plot_grid(a, b, c, ncol = 3, labels = "auto")
-plot_grid(legend, bottom, ncol = 1, rel_heights = c(0.1, 1))
-
+plot_grid(a, b, ncol = 1, labels = "auto", rel_heights = c(0.85, 1))
 
 ## ----plot_boxplot, cache=TRUE, dependson="arrange_output", fig.width=4, fig.height=3---------------
 
