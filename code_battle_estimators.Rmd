@@ -638,6 +638,7 @@ dt.tmp <- A[, .(min = min(ratio), max = max(ratio))]
 v <-  seq(10, ceiling(dt.tmp$max), 10)
 
 dt.plot <- lapply(v, function(v) A[ratio < v])
+names(dt.plot) <- v
 
 # Plot
 lapply(dt.plot, function(x) x[, median(correlation, na.rm = TRUE), estimator]) %>%
@@ -648,6 +649,7 @@ lapply(dt.plot, function(x) x[, median(correlation, na.rm = TRUE), estimator]) %
   labs(x = expression(italic(N[t]/k)),
        y = expression(median(italic(r)))) +
   scale_color_discrete(name = "Estimator") +
+  scale_x_log10() +
   theme_AP()
 ```
 
