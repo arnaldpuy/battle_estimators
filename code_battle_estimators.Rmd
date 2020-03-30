@@ -804,7 +804,7 @@ indices <- full_output[, sobol_indices(Y = correlation,
                        estimator]
 ```
 
-```{r plot_sobol_indices, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=5, fig.width=5}
+```{r plot_sobol_indices, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=5, fig.width=4.7}
 
 # PLOT SOBOL' INDICES --------------------------------------------------------------
 
