@@ -640,7 +640,7 @@ b <- ggplot(A[correlation > 0], aes(Nt, k, color = correlation)) +
   theme(legend.position = "top")
 
 # Ratio
-c <- ggplot(A[correlation > 0 & estimator == "Jansen" | estimator == "Razavi and Gupta"], aes(ratio, correlation)) +
+c <- ggplot(A[correlation > 0], aes(ratio, correlation)) +
   geom_point(alpha = 0.1, size = 0.2) +
   facet_wrap(~estimator, 
              ncol = 3) +
@@ -651,19 +651,17 @@ c <- ggplot(A[correlation > 0 & estimator == "Jansen" | estimator == "Razavi and
   scale_y_continuous(breaks = pretty_breaks(n = 3)) +
   theme_AP()
 
-
-
-A[estimator == "Jansen" | estimator == "Razavi and Gupta"] %>%
-  ggplot(., aes(ratio, correlation, color = estimator)) + 
-  geom_point() +
-  scale_x_log10() +
-  geom_smooth()
-
-
 # Merge plot
 plot_grid(a, b, ncol = 1, labels = "auto", rel_heights = c(0.85, 1))
 
-A[estimator == "Jansen"]
+
+## ----plot_ratio, cache=TRUE, dependson="plot_full", fig.height=4, fig.width=4.7------------------
+
+# DISPLAY THE RATIO NT/K FOR EACH SIMULATION AND ESTIMATOR --------------------
+
+c
+
+
 ## ----plot_boxplot, cache=TRUE, dependson="arrange_output", fig.width=4, fig.height=3-------------
 
 # PLOT BOXPLOT ---------------------------------------------------------------------
@@ -682,45 +680,20 @@ ggplot(A[correlation > 0], aes(estimator, correlation)) +
 
 dt.tmp <- A[, .(min = min(ratio), max = max(ratio))]
 
-v <-  seq(0, ceiling(dt.tmp$max), 10)
-
+v <-  seq(0, ceiling(dt.tmp$max), 20)
 a <- c(v[1], rep(v[-c(1, length(v))], each = 2), v[length(v)])
 indices <- matrix(a, ncol = 2 ,byrow = TRUE)
+
 
 out <- list()
 for(i in 1:nrow(indices)) {
   out[[i]] <- A[ratio > indices[i, 1] & ratio < indices[i, 2]]
 }
 
-
-
-
-
-
-
-
-
-
-
-dt.plot <- lapply(v, function(x) A[ratio > x & ratio <= (x + 10) ])
-names(dt.plot) <- v
-
-out <- list()
-for(i in v) {
-  out[[i+1]] <- A[ratio > i & ratio < (i + 10)]
-}
-
-names(out) <- v
-
-out[!unlist(lapply(out, is.null))] 
-
-
-
-lapply(v, function(x) A[ratio < x])
-
+names(out) <- rowmeans(indices)
 
 # Plot
-lapply(out, function(x) x[, median(correlation, na.rm = TRUE), estimator]) %>%
+lapply(out, function(x) x[correlation > 0, median(correlation, na.rm = TRUE), estimator]) %>%
   rbindlist(., idcol = "N") %>%
   .[, N:= as.numeric(N)] %>%
   ggplot(., aes(N, V1, group = estimator, color = estimator)) +
