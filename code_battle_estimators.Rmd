@@ -731,7 +731,8 @@ b <- ggplot(A[correlation > 0], aes(Nt, k, color = correlation)) +
 c <- ggplot(A[correlation > 0], aes(ratio, correlation)) +
   geom_point(alpha = 0.1, size = 0.2) +
   facet_wrap(~estimator, 
-             ncol = 1) +
+             ncol = 3) +
+  geom_smooth() +
   labs(x = expression(italic(N[t]/k)), 
        y = expression(italic(r))) +
   scale_x_log10() +
@@ -740,6 +741,13 @@ c <- ggplot(A[correlation > 0], aes(ratio, correlation)) +
 
 # Merge plot
 plot_grid(a, b, ncol = 1, labels = "auto", rel_heights = c(0.85, 1))
+```
+
+```{r plot_ratio, cache=TRUE, dependson="plot_full", fig.height=4, fig.width=4.7}
+
+# DISPLAY THE RATIO NT/K FOR EACH SIMULATION AND ESTIMATOR --------------------
+
+c
 ```
 
 ```{r plot_boxplot, cache=TRUE, dependson="arrange_output", fig.width=4, fig.height=3}
@@ -760,13 +768,20 @@ ggplot(A[correlation > 0], aes(estimator, correlation)) +
 
 dt.tmp <- A[, .(min = min(ratio), max = max(ratio))]
 
-v <-  seq(10, ceiling(dt.tmp$max), 10)
+v <-  seq(0, ceiling(dt.tmp$max), 20)
+a <- c(v[1], rep(v[-c(1, length(v))], each = 2), v[length(v)])
+indices <- matrix(a, ncol = 2 ,byrow = TRUE)
 
-dt.plot <- lapply(v, function(v) A[ratio < v])
-names(dt.plot) <- v
+
+out <- list()
+for(i in 1:nrow(indices)) {
+  out[[i]] <- A[ratio > indices[i, 1] & ratio < indices[i, 2]]
+}
+
+names(out) <- rowmeans(indices)
 
 # Plot
-lapply(dt.plot, function(x) x[, median(correlation, na.rm = TRUE), estimator]) %>%
+lapply(out, function(x) x[correlation > 0, median(correlation, na.rm = TRUE), estimator]) %>%
   rbindlist(., idcol = "N") %>%
   .[, N:= as.numeric(N)] %>%
   ggplot(., aes(N, V1, group = estimator, color = estimator)) +
