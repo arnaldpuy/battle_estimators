@@ -802,6 +802,14 @@ indices <- full_output[, sobol_indices(Y = correlation,
                                        boot = TRUE, 
                                        order = order), 
                        estimator]
+
+# Compute Sobol' indices for dummy parameter
+indicesD <- full_output[, sobol_dummy(Y = correlation, 
+                                      N = N, 
+                                      params = params.plot, 
+                                      boot = TRUE, 
+                                      R = R), 
+                        estimator]
 ```
 
 ```{r plot_sobol_indices, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=5, fig.width=4.7}
@@ -821,6 +829,11 @@ ggplot(indices, aes(parameters, original, fill = sensitivity)) +
   geom_errorbar(aes(ymin = low.ci, 
                     ymax = high.ci), 
                 position = position_dodge(0.6)) +
+  geom_hline(data = indicesD,
+             aes(yintercept = high.ci,
+                 color = sensitivity),
+             lty = 2,
+             show.legend = FALSE) +
   scale_x_discrete(labels = c(expression(N[italic(t)]), 
                               expression(italic(k)), 
                               expression(italic(k[2])), 

@@ -1,8 +1,8 @@
-## ----setup, include=FALSE-----------------------------------------------
+## ----setup, include=FALSE------------------------------------------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
 
 
-## ----preliminary steps, results="hide", message=FALSE, warning=FALSE----
+## ----preliminary steps, results="hide", message=FALSE, warning=FALSE-----------------------------
 
 # PRELIMINARY FUNCTIONS -------------------------------------------------------
 
@@ -45,7 +45,7 @@ checkpoint("2020-01-23",
            checkpointLocation = getwd())
 
 
-## ----savage_scores, cache=TRUE------------------------------------------
+## ----savage_scores, cache=TRUE-------------------------------------------------------------------
 
 # SAVAGE SCORES --------------------------------------------------------------------
 
@@ -59,7 +59,7 @@ savage_scores <- function(x) {
 }
 
 
-## ----vars_functions, cache=TRUE-----------------------------------------
+## ----vars_functions, cache=TRUE------------------------------------------------------------------
 
 # VARS FUNCTIONS --------------------------------------------------------------
 
@@ -128,7 +128,7 @@ vars_ti <- function(Y, star.centers, params, h) {
 }
 
 
-## ----ti_indices, cache=TRUE, dependson="savage_scores"------------------
+## ----ti_indices, cache=TRUE, dependson="savage_scores"-------------------------------------------
 
 # COMPUTATION OF SOBOL' Ti INDICES -------------------------------------------------
 
@@ -190,7 +190,7 @@ sobol_Ti <- function(d, N, params, total) {
 }
 
 
-## ----check_ti, cache=TRUE, dependson="ti_indices"-----------------------
+## ----check_ti, cache=TRUE, dependson="ti_indices"------------------------------------------------
 
 # CHECK THAT ALL TI ESTIMATORS WORK ------------------------------------------------
 
@@ -255,7 +255,7 @@ vars.ind <- rbindlist(vars.ind, idcol = "Function")[
   setcolorder(., c("estimator", "Function", "Ti", "parameters"))
 
 
-## ----plot_prove, cache=TRUE, dependson="check_ti", dev="tikz", fig.height=3, fig.width=6.5----
+## ----plot_prove, cache=TRUE, dependson="check_ti", dev="tikz", fig.height=3, fig.width=6.5-------
 
 # PLOT SENSITIVITY INDICES ---------------------------------------------------------
 
@@ -284,7 +284,7 @@ lapply(ind, function(x) rbindlist(x, idcol = "Function")) %>%
                              byrow = TRUE))
 
 
-## ----functions_metafunction, cache=TRUE---------------------------------
+## ----functions_metafunction, cache=TRUE----------------------------------------------------------
 
 # CREATE METAFUNCTION --------------------------------------------------------------
 
@@ -322,7 +322,7 @@ a <- ggplot(data.frame(x = runif(100)), aes(x)) +
 a
 
 
-## ----function_distributions, cache=TRUE---------------------------------
+## ----function_distributions, cache=TRUE----------------------------------------------------------
 
 # CREATE FUNCTION FOR RANDOM DISTRIBUTIONS -----------------------------------------
 
@@ -402,7 +402,7 @@ Y <- metafunction(data = A, k_2 = k_2, k_3 = k_3, epsilon = epsilon)
 ind <- sobol_indices(Y = Y, N = N, params = params, R = R, boot = TRUE)
 
 
-## ----settings, cache=TRUE-----------------------------------------------
+## ----settings, cache=TRUE------------------------------------------------------------------------
 
 # DEFINE SETTINGS ------------------------------------------------------------------
 
@@ -415,7 +415,7 @@ params <- c("k", "N_t", "k_2", "k_3", "epsilon", "phi", "delta")
 N.high <- 2 ^ 11 # Maximum sample size of the large sample matrix
 
 
-## ----sample_matrix, cache=TRUE, dependson="settings"--------------------
+## ----sample_matrix, cache=TRUE, dependson="settings"---------------------------------------------
 
 # CREATE SAMPLE MATRIX -------------------------------------------------------------
 
@@ -559,7 +559,7 @@ Y.ti <- foreach(i=1:nrow(mat),
 stopCluster(cl)
 
 
-## ----arrange_output, cache=TRUE, dependson="model_run"------------------
+## ----arrange_output, cache=TRUE, dependson="model_run"-------------------------------------------
 
 # ARRANGE OUTPUT -------------------------------------------------------------------
 
@@ -587,14 +587,14 @@ full_output <- merge(mt.dt, out_cor) %>%
 A <- full_output[,.SD[1:N], estimator]
 
 
-## ----export_output, cache=TRUE, dependson="arrange_output"--------------
+## ----export_output, cache=TRUE, dependson="arrange_output"---------------------------------------
 
 # EXPORT OUTPUT --------------------------------------------------------------------
 fwrite(A, "A.csv")
 fwrite(full_output, "full_output.csv")
 
 
-## ----plot_full, cache=TRUE, dependson="arrange_output", fig.height=8, fig.width=4.7----
+## ----plot_full, cache=TRUE, dependson="arrange_output", fig.height=8, fig.width=4.7--------------
 
 # PLOT OUTPUT ----------------------------------------------------------------------
 # Compute median and quantiles
@@ -654,7 +654,7 @@ c <- ggplot(A[correlation > 0], aes(ratio, correlation)) +
 plot_grid(a, b, ncol = 1, labels = "auto", rel_heights = c(0.85, 1))
 
 
-## ----plot_boxplot, cache=TRUE, dependson="arrange_output", fig.width=4, fig.height=3----
+## ----plot_boxplot, cache=TRUE, dependson="arrange_output", fig.width=4, fig.height=3-------------
 
 # PLOT BOXPLOT ---------------------------------------------------------------------
 
@@ -666,7 +666,7 @@ ggplot(A[correlation > 0], aes(estimator, correlation)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
-## ----plot_medians, cache=TRUE, dependson="arrange_output", fig.width=4.5, fig.height=3----
+## ----plot_medians, cache=TRUE, dependson="arrange_output", fig.width=4.5, fig.height=3-----------
 
 # PLOT MEDIANS ---------------------------------------------------------------------
 
@@ -690,7 +690,7 @@ lapply(dt.plot, function(x) x[, median(correlation, na.rm = TRUE), estimator]) %
   theme_AP()
 
 
-## ----sensitivity_analysis, cache=TRUE, dependson=c("arrange_output", "sobol_indices")----
+## ----sensitivity_analysis, cache=TRUE, dependson=c("arrange_output", "sobol_indices")------------
 
 # SENSITIVITY ANALYSIS -------------------------------------------------------------
 
@@ -713,6 +713,14 @@ indices <- full_output[, sobol_indices(Y = correlation,
                                        order = order), 
                        estimator]
 
+# Compute Sobol' indices for dummy parameter
+indicesD <- full_output[, sobol_dummy(Y = correlation, 
+                                      N = N, 
+                                      params = params.plot, 
+                                      boot = TRUE, 
+                                      R = R), 
+                        estimator]
+
 
 ## ----plot_sobol_indices, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=5, fig.width=4.7----
 
@@ -731,6 +739,11 @@ ggplot(indices, aes(parameters, original, fill = sensitivity)) +
   geom_errorbar(aes(ymin = low.ci, 
                     ymax = high.ci), 
                 position = position_dodge(0.6)) +
+  geom_hline(data = indicesD,
+             aes(yintercept = high.ci,
+                 color = sensitivity),
+             lty = 2,
+             show.legend = FALSE) +
   scale_x_discrete(labels = c(expression(N[italic(t)]), 
                               expression(italic(k)), 
                               expression(italic(k[2])), 
@@ -750,7 +763,7 @@ ggplot(indices, aes(parameters, original, fill = sensitivity)) +
   theme(legend.position = "top")
 
 
-## ----sum_si, cache=TRUE, dependson="sensitivity_analysis", fig.height=3, fig.width=3.5----
+## ----sum_si, cache=TRUE, dependson="sensitivity_analysis", fig.height=3, fig.width=3.5-----------
 
 # SUM OF FIRST-ORDER INDICES -------------------------------------------------------
 
@@ -767,7 +780,7 @@ merge(indices[sensitivity == "Si", sum(original), estimator],
   theme_AP()
 
 
-## ----export_indices, cache=TRUE, dependson="sensitivity_analysis"-------
+## ----export_indices, cache=TRUE, dependson="sensitivity_analysis"--------------------------------
 
 # EXPORT SOBOL' INDICES -------------------------------------------------------
 
@@ -776,7 +789,7 @@ fwrite(dt_median, "dt_median.csv")
 
 
 
-## ----session_information------------------------------------------------
+## ----session_information-------------------------------------------------------------------------
 
 # SESSION INFORMATION ---------------------------------------------------------
 
