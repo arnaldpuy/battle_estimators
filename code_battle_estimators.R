@@ -58,6 +58,81 @@ savage_scores <- function(x) {
   return(out)
 }
 
+# VARS FUNCTIONS ------------------------------------------------------------------------
+
+vars_matrices <- function(star.centers, params, h) {
+  out <- center <- sections <- A <- B <- AB <- X <- out <- list()
+  mat <- randtoolbox::sobol(n = star.centers, dim = length(params))
+  for(i in 1:nrow(mat)) {
+    center[[i]] <- mat[i, ]
+    sections[[i]] <- sapply(center[[i]], function(x) {
+      all <- seq(x %% h, 1, h)
+      non.zeros <- all[all!= 0] # Remove zeroes
+    })
+    B[[i]] <- sapply(1:ncol(mat), function(x) 
+      sections[[i]][, x][!sections[[i]][, x] %in% center[[i]][x]])
+    A[[i]] <- matrix(center[[i]], nrow = nrow(B[[i]]), 
+                     ncol = length(center[[i]]), byrow = TRUE)
+    X[[i]] <- rbind(A[[i]], B[[i]])
+    for(j in 1:ncol(A[[i]])) {
+      AB[[i]] <- A[[i]]
+      AB[[i]][, j] <- B[[i]][, j]
+      X[[i]] <- rbind(X[[i]], AB[[i]])
+    }
+    AB[[i]] <- X[[i]][(2 * nrow(B[[i]]) + 1):nrow(X[[i]]), ]
+    out[[i]] <- rbind(unname(center[[i]]), AB[[i]])
+  }
+  return(do.call(rbind, out))
+}
+
+# Function to cut by size
+CutBySize <- function(m, block.size, nb = ceiling(m / block.size)) {
+  int <- m / nb
+  upper <- round(1:nb * int)
+  lower <- c(1, upper[-nb] + 1)
+  size <- c(upper[1], diff(upper))
+  cbind(lower, upper, size)
+}
+
+# Function to compute VARS-TI
+vars_ti <- function(Y, star.centers, params, h) {
+  n.cross.points <- length(params) * ((1 / h) - 1) + 1
+  index.centers <- seq(1, length(Y), n.cross.points)
+  mat <- matrix(Y[-index.centers], ncol = star.centers)
+  indices <- CutBySize(nrow(mat), nb = length(params))
+  out <- list()
+  for(i in 1:nrow(indices)) {
+    out[[i]] <- mat[indices[i, "lower"]:indices[i, "upper"], ]
+  }
+  d <- lapply(1:length(params), function(x) 
+    lapply(1:ncol(out[[x]]), function(j) {
+      da <- c(out[[x]][, j][1], 
+              rep(out[[x]][, j][-c(1, length(out[[x]][, j]))], each = 2), 
+              out[[x]][, j][length(out[[x]][, j])])
+    }))
+  out <- lapply(d, function(x) lapply(x, function(y) matrix(y, nrow = length(y) / 2, byrow = TRUE)))
+  variogr <- unlist(lapply(out, function(x)
+    lapply(x, function(y) 1 / 2 * mean(y[, 1] - y[, 2]) ^ 2)) %>%
+      lapply(., function(x) Rfast::colmeans(do.call(rbind, x))))
+  covariogr <- unlist(lapply(out, function(x)
+    lapply(x, function(y) cov(y[, 1], y[, 2]))) %>%
+      lapply(., function(x) Rfast::colmeans(do.call(rbind, x))))
+  VY <- var(Y[index.centers])
+  Ti <- (variogr + covariogr) / VY
+  output <- data.table::data.table(Ti)
+  output[, `:=`(parameters = params)]
+  return(output)
+}
+
+
+star.centers <- 10
+params = paste("X", 1:8, sep = "")
+h <- 0.2
+
+dd <- vars_matrices(star.centers = star.centers, params = params, h = h)
+Y <- sensobol::sobol_Fun(dd)
+vars <- vars_ti(Y = Y, star.centers = star.centers, params = params, h = h)
+
 
 ## ----ti_indices, cache=TRUE, dependson="savage_scores"---------------------------------------------
 
@@ -121,6 +196,8 @@ sobol_Ti <- function(d, N, params, total) {
 }
 
 
+
+
 ## ----check_ti, cache=TRUE, dependson="ti_indices"--------------------------------------------------
 
 # CHECK THAT ALL TI ESTIMATORS WORK ------------------------------------------------
@@ -139,8 +216,7 @@ for(i in estimators) {
     } else if(i == "azzini" | i == "lamboni"){
       matrices <- c("A", "B", "AB", "BA")
     } else if(i == "owen") {
-      matrices <- c("A", "B", "BA", "CB")
-    }
+      matrices <- c("A", "B", "BA", "CB")}
     if(j == "Ishigami") {
       k <- 3
       modelRun <- sensobol::ishigami_Fun
@@ -158,6 +234,33 @@ for(i in estimators) {
   }
 }
 
+star.centers * (length(params) * ((1 / h) -1) + 1)
+
+star.centers <- 100
+h <- 0.1
+vars.ind <- list()
+for(j in test_functions) {
+  if(j == "Ishigami") {
+    k <- 3
+    modelRun <- sensobol::ishigami_Fun
+  } else if(j == "Sobol'G") {
+    k <- 8
+    modelRun <- sensobol::sobol_Fun
+  } else if(j == "Morris") {
+    k <- 20
+    modelRun <- sensitivity::morris.fun
+  }
+  mt[[j]] <- vars_matrices(star.centers = star.centers, 
+                           params = paste("X", 1:k, sep = ""), 
+                           h = h)
+  Y[[j]] <- modelRun(mt[[j]])
+  vars.ind[[j]] <- vars_ti(Y = Y[[j]], star.centers = star.centers, 
+                           params = paste("X", 1:k, sep = ""), h = h)
+}
+
+vars.ind <- rbindlist(vars.ind, idcol = "Function")[
+  , estimator:= "vars"] %>%
+  setcolorder(., c("estimator", "Function", "Ti", "parameters"))
 
 ## ----plot_prove, cache=TRUE, dependson="check_ti", dev="tikz", fig.height=3, fig.width=6.5---------
 
@@ -165,24 +268,27 @@ for(i in estimators) {
 
 lapply(ind, function(x) rbindlist(x, idcol = "Function")) %>%
   rbindlist(., idcol = "estimator") %>%
+  rbind(vars.ind) %>%
   .[, parameters:= factor(parameters, levels = paste("X", 1:20, sep = ""))] %>%
   .[, Function:= factor(Function, levels = test_functions)] %>%
   ggplot(., aes(parameters, Ti, fill = estimator)) +
   geom_bar(stat = "identity", 
            position = position_dodge(0.7), 
            color = "black") +
+  scale_fill_discrete(name = expression(paste("Sobol' ", T[italic(i)])),
+                      labels = c("Azzini", "Glen and Isaacs", "Homma and Saltelli", 
+                                 "Jansen", "Lamboni", "Janon / Monod", "Owen", 
+                                 "Sobol", "Razavi and Gupta")) +
   facet_grid(~Function, 
              scales = "free_x", 
              space = "free_x") +
-  scale_fill_discrete(name = expression(paste("Sobol' ", T[italic(i)])),
-                      labels = c("Azzini", "Glen and Isaacs", "Homma and Saltelli", 
-                                 "Jansen", "Lamboni", "Janon / Monod", "Owen", "Sobol")) +
   labs(x = "",
        y = expression(T[italic(i)])) +
   theme_AP() + 
   theme(axis.text.x = element_text(size = 6.5), 
-        legend.position = "top")
-
+        legend.position = "top") + 
+  guides(fill = guide_legend(nrow = 3, 
+                             byrow = TRUE))
 
 ## ----functions_metafunction, cache=TRUE------------------------------------------------------------
 
@@ -306,7 +412,8 @@ ind <- sobol_indices(Y = Y, N = N, params = params, R = R, boot = TRUE)
 
 # DEFINE SETTINGS ------------------------------------------------------------------
 
-N <- 2 ^ 11 # Sample size of sample matrix
+N <- 2 ^ 8 # Sample size of sample matrix
+h <- 0.2 # step for VARS
 R <- 500 # Number of bootstrap replicas
 n_cores <- ceiling(detectCores() * 0.5)
 order <- "first"
@@ -331,32 +438,43 @@ colnames(mat) <- params
 
 N.all <- apply(mat, 1, function(x) ceiling(x["N_t"] / (x["k"] + 1)))
 N.azzini <- apply(mat, 1, function(x) ceiling(x["N_t"] / (2 * x["k"] + 2)))
+N.vars <- apply(mat, 1, function(x) floor(x["N_t"] / ((x[["k"]] * ((1 / h) -1) + 1))))
 
-tmp <- cbind(mat, N.all, N.azzini)
-sel <- c("N.all", "N.azzini")
+tmp <- cbind(mat, N.all, N.azzini, N.vars)
+sel <- c("N.all", "N.azzini", "N.vars")
 
 mat <- as.matrix(data.table(tmp)[, (sel):= lapply(.SD, function(x) 
-  ifelse(x == 1, 2, x)), .SDcols = (sel)])
+  ifelse(x == 1 | x == 0, 2, x)), .SDcols = (sel)])
 
+C.all <- apply(mat, 1, function(x) x["N.all"] * (x["k"] + 1))
+C.azzini <- apply(mat, 1, function(x) x["N.azzini"] * (2 * x["k"] + 2))
+C.vars <- apply(mat, 1, function(x) x["N.vars"] * (x["k"] * ((1 / h) - 1) + 1))
+
+mat <- cbind(mat, C.all, C.azzini, C.vars)
 
 ## ----define_model, cache=TRUE, dependson=c("sample_matrices_functions", "metafunction", "ti_indices", "savage_scores")----
 
 # DEFINE MODEL ---------------------------------------------------------------------
 
-model_Ti <- function(k, N.all, N.azzini, N.high, k_2, k_3, epsilon, phi, delta) {
+model_Ti <- function(k, N.all, N.azzini, N.vars, h, 
+                     N.high, k_2, k_3, epsilon, phi, delta) {
   ind <- list()
-  estimators <- c("jansen", "sobol", "homma", "monod", "azzini", "lamboni", "glen", "owen")
+  estimators <- c("jansen", "sobol", "homma", "monod", "azzini", 
+                  "lamboni", "glen", "owen", "vars")
   all.but.azzini <- sobol_matrices(N = N.all, params = paste("X", 1:k, sep = ""), 
                                    matrices = c("A", "AB"))
   azzini <- sobol_matrices(N = N.azzini, params = paste("X", 1:k, sep = ""), 
                            matrices = c("A", "B", "AB", "BA"))
   owen.matrix <- sobol_matrices(N = N.azzini, params = paste("X", 1:k, sep = ""), 
                            matrices = c("A", "B", "BA", "CB"))
+  vars.matrix <- vars_matrices(star.centers = N.vars, params = paste("X", 1:k, sep = ""), 
+                               h = h)
   large.matrix <- sobol_matrices(N = N.high, params = paste("X", 1:k, sep = ""), 
                                  matrices = c("A", "AB"))
   set.seed(epsilon)
   all.matrices <- random_distributions(X = rbind(all.but.azzini, azzini, 
-                                                 owen.matrix, large.matrix), 
+                                                 owen.matrix, vars.matrix, 
+                                                 large.matrix), 
                                        phi = phi)
   output <- sensobol::metafunction(data = all.matrices, 
                                    k_2 = k_2, 
@@ -371,9 +489,11 @@ model_Ti <- function(k, N.all, N.azzini, N.high, k_2, k_3, epsilon, phi, delta) 
   # Define indices of Y for estimators
   Nt.all.but.azzini <- N.all * (k + 1)
   Nt.azzini.owen <- N.azzini * ((2 * k) + 2)
+  Nt.vars <- N.vars * (k * ((1 / h) - 1) + 1)
   lg.all.but.azzini <- 1:Nt.all.but.azzini
   lg.azzini <- (length(lg.all.but.azzini) + 1):(length(lg.all.but.azzini) + Nt.azzini.owen)
   lg.owen <- (max(lg.azzini) + 1):(max(lg.azzini) + Nt.azzini.owen)
+  lg.vars <- (max(lg.owen) + 1): (max(lg.owen) + Nt.vars)
   
   for(i in estimators) {
     if(i == "jansen" | i == "sobol" | i == "homma" | i == "monod" | i == "glen") {
@@ -385,8 +505,17 @@ model_Ti <- function(k, N.all, N.azzini, N.high, k_2, k_3, epsilon, phi, delta) 
     } else if(i == "owen") {
       y <- output[lg.owen]
       n <- N.azzini
+    } else if(i == "vars") {
+      y <- output[lg.vars]
+      star.centers <- N.vars
     }
-    ind[[i]] <- sobol_Ti(d = y, N = n, params = paste("X", 1:k, sep = ""), total = i)
+    if(!i == "vars") {
+      ind[[i]] <- sobol_Ti(d = y, N = n, params = paste("X", 1:k, sep = ""), total = i)
+    }
+    if(i == "vars") {
+      ind[[i]] <- vars_ti(Y = y, star.centers = star.centers, 
+                          params = paste("X", 1:k, sep = ""), h = h)
+    }
     ind[[i]][, sample.size:= "n"]
     ind[[i]] <- rbind(ind[[i]], full.ind)
   }
@@ -416,7 +545,7 @@ registerDoParallel(cl)
 # Compute
 Y.ti <- foreach(i=1:nrow(mat), 
                 .packages = c("sensobol", "data.table", "pcaPP", 
-                                 "logitnorm")) %dopar%
+                                 "logitnorm", "dplyr")) %dopar%
   {
     model_Ti(k = mat[[i, "k"]], 
              k_2 = mat[[i, "k_2"]], 
@@ -426,12 +555,13 @@ Y.ti <- foreach(i=1:nrow(mat),
              delta = mat[[i, "delta"]],
              N.all = mat[[i, "N.all"]], 
              N.azzini = mat[[i, "N.azzini"]], 
-             N.high = N.high)
+             N.vars = mat[[i, "N.vars"]],
+             N.high = N.high, 
+             h = h)
   }
 
 # Stop parallel cluster
 stopCluster(cl)
-
 
 ## ----arrange_output, cache=TRUE, dependson="model_run"---------------------------------------------
 
@@ -444,14 +574,17 @@ mt.dt <- data.table(mat) %>%
 
 full_output <- merge(mt.dt, out_cor) %>%
   .[, Nt:= ifelse(estimator == "azzini" | estimator == "lamboni" 
-                  | estimator == "owen", N.azzini * (2 * k + 2), N.all * (k + 1))] %>%
+                  | estimator == "owen", N.azzini * (2 * k + 2), 
+                  ifelse(estimator == "vars", N.vars * (k * ((1 / h) -1) + 1), N.all * (k + 1)))] %>%
   .[, estimator:= ifelse(estimator %in% "azzini", "Azzini and Rosati", 
                         ifelse(estimator %in% "homma", "Homma and Saltelli",
                                ifelse(estimator %in% "monod", "Janon/Monod", 
                                       ifelse(estimator %in% "jansen", "Jansen", 
                                              ifelse(estimator %in% "glen", "Glen and Isaac", 
                                                     ifelse(estimator %in% "lamboni", "Lamboni", 
-                                                           ifelse(estimator %in% "owen", "Owen", "Sobol'")))))))] %>%
+                                                           ifelse(estimator %in% "owen", "Owen", 
+                                                                  ifelse(estimator %in% "vars", "Razavi and Gupta", 
+                                                                         "Sobol'"))))))))] %>%
   .[, ratio:= Nt / k]
 
 # Define A matrix
@@ -664,4 +797,21 @@ cat("Num threads: "); print(detectCores(logical = TRUE))
 
 ## Return the machine RAM
 cat("RAM:         "); print (get_ram()); cat("\n")
+
+
+
+
+
+
+rowN <- 10
+N.all <- mat[rowN, "N.all"]
+N.azzini <- mat[rowN, "N.azzini"]
+N.vars <- mat[rowN, "N.vars"]
+h <- 0.2
+params <- paste("X", 1:mat[1, "k"], sep = "")
+epsilon <- mat[rowN, "epsilon"]
+phi <- mat[rowN, "phi"]
+k2 <- mat[rowN, "k_2"]
+k3 <- mat[rowN, "k_3"]
+delta <- mat[rowN, "delta"]
 
