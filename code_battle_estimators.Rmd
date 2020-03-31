@@ -682,6 +682,19 @@ fwrite(full_output, "full_output.csv")
 
 # Uncertainty analysis
 
+```{r plot_negative, cache=TRUE, dependson="arrange_output", fig.height=3, fig.width=3.5}
+
+# PLOT PROPORTION OF NEGATIVE VALUES ------------------------------------------
+
+A[, sum(correlation < 0)/ .N, estimator] %>%
+  ggplot(., aes(reorder(estimator, V1), V1)) +
+  geom_bar(stat = "identity") + 
+  coord_flip() + 
+  labs(y = expression(frac(1, N)~sum(italic(r)[j], j==1, N)), 
+       x = "") +
+  theme_AP()
+```
+
 ```{r plot_full, cache=TRUE, dependson="arrange_output", fig.height=8, fig.width=4.7}
 
 # PLOT OUTPUT ----------------------------------------------------------------------
@@ -690,7 +703,7 @@ dt_median <- A[correlation > 0, .(median = median(correlation),
                                   low.ci = quantile(correlation, 0.25), 
                                   high.ci = quantile(correlation, 0.75)), estimator]
 
-a <- ggplot(A[correlation > 0], aes(correlation)) +
+a <- ggplot(A, aes(correlation)) +
   geom_rect(data = dt_median,
             aes(xmin = low.ci,
                 xmax = high.ci,
@@ -714,7 +727,7 @@ a <- ggplot(A[correlation > 0], aes(correlation)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 # Scatterplot
-b <- ggplot(A[correlation > 0], aes(Nt, k, color = correlation)) +
+b <- ggplot(A, aes(Nt, k, color = correlation)) +
   geom_point(size = 0.15) + 
   scale_colour_gradientn(colours = c("purple", "red", "orange", "lightgreen"), 
                          name = expression(italic(r))) +
@@ -728,7 +741,7 @@ b <- ggplot(A[correlation > 0], aes(Nt, k, color = correlation)) +
   theme(legend.position = "top")
 
 # Ratio
-c <- ggplot(A[correlation > 0], aes(ratio, correlation)) +
+c <- ggplot(A, aes(ratio, correlation)) +
   geom_point(alpha = 0.1, size = 0.2) +
   facet_wrap(~estimator, 
              ncol = 3) +
@@ -754,7 +767,7 @@ c
 
 # PLOT BOXPLOT ---------------------------------------------------------------------
 
-ggplot(A[correlation > 0], aes(estimator, correlation)) +
+ggplot(A, aes(estimator, correlation)) +
   geom_boxplot() + 
   labs(x = "", 
        y = expression(italic(r))) + 
@@ -781,7 +794,7 @@ for(i in 1:nrow(indices)) {
 names(out) <- rowmeans(indices)
 
 # Plot
-lapply(out, function(x) x[correlation > 0, median(correlation, na.rm = TRUE), estimator]) %>%
+lapply(out, function(x) x[, median(correlation, na.rm = TRUE), estimator]) %>%
   rbindlist(., idcol = "N") %>%
   .[, N:= as.numeric(N)] %>%
   ggplot(., aes(N, V1, group = estimator, color = estimator)) +
@@ -794,6 +807,39 @@ lapply(out, function(x) x[correlation > 0, median(correlation, na.rm = TRUE), es
 ```
 
 # Sensitivity analysis
+
+## Scatterplots
+
+```{r scatter_sensitivity, cache=TRUE, dependson="arrange_output", fig.height=4.7, fig.width=4.7}
+
+# SCATTERPLOTS OF MODEL OUTPUT AGAINST PARAMETERS -----------------------------
+
+A <- setnames(A, c("N_t", "k_2", "k_3"), c("N[t]", "k[2]", "k[3]"))
+
+scatter.dt <- melt(A, measure.vars = c("k", "N[t]", "k[2]", "k[3]", 
+                                       "epsilon", "phi", "delta")) %>%
+  split(., .$estimator)
+
+gg <- list()
+for(i in names(scatter.dt)) {
+  gg[[i]] <- ggplot(scatter.dt[[i]], aes(value, correlation)) +
+    geom_point(alpha = 0.2, size = 0.3) +
+    facet_wrap(~ variable, 
+               scales = "free_x", 
+               labeller = label_parsed,
+               ncol = 4) +
+    scale_color_manual(values = c("#00BFC4", "#F8766D")) +
+    scale_x_continuous(breaks = pretty_breaks(n = 3)) +
+    theme_AP() +
+    labs(x = "", y = expression(italic(r))) +
+    theme() + 
+    ggtitle(names(scatter.dt[i]))
+}
+
+gg
+```
+
+## Sobol' indices
 
 ```{r sensitivity_analysis, cache=TRUE, dependson=c("arrange_output", "sobol_indices")}
 
