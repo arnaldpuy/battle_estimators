@@ -78,6 +78,8 @@ checkpoint("2020-01-23",
 
 \newpage 
 
+# Functions
+
 ## Savage scores
 
 ```{r savage_scores, cache=TRUE}
@@ -444,11 +446,7 @@ ind <- sobol_indices(Y = Y, N = N, params = params, R = R, boot = TRUE)
 
 # The model
 
-This section sets the ground for the battle of the estimators.
-
 ## Settings
-
-We first define the settings of the analysis, including the sample size of the base sample matrix. This sample matrix will initially have two columns: $k$ (which will define the dimensionality of the metafunction) and $C$ (which will define the total cost or the total number of runs of the metafunction). `N.high` defines the size of the sample matrix that will be used to compute the "true" ranks for each run of the metafunction.
 
 ```{r settings, cache=TRUE}
 
@@ -584,8 +582,6 @@ model_Ti <- function(k, N.all, N.azzini, N.vars, h,
 
 ## Run the model
 
-This code snippet runs the model. In my computer (see section System Information) it took approximately 4 h.
-
 ```{r model_run, cache=TRUE, dependson=c("define_model", "settings", "sample_matrix")}
 
 # RUN MODEL ------------------------------------------------------------------------
@@ -664,7 +660,7 @@ A[, sum(correlation < 0)/ .N, estimator] %>%
   ggplot(., aes(reorder(estimator, V1), V1)) +
   geom_bar(stat = "identity") + 
   coord_flip() + 
-  labs(y = expression(frac(1, N)~sum(italic(r)[j], j==1, N)), 
+  labs(y = expression(frac(1, N)~sum(italic(r)[j] < 0, j==1, N)), 
        x = "") +
   theme_AP()
 ```
@@ -690,7 +686,7 @@ A[index.neg] %>%
 ```
 
 
-```{r plot_full, cache=TRUE, dependson="arrange_output", fig.height=8, fig.width=4.7}
+```{r plot_full, cache=TRUE, dependson="arrange_output", fig.height=7.3, fig.width=4.2}
 
 # PLOT OUTPUT ----------------------------------------------------------------------
 
@@ -728,8 +724,8 @@ a <- ggplot(A, aes(correlation)) +
 
 # Scatterplot
 b <- ggplot(A, aes(Nt, k, color = correlation)) +
-  geom_point(size = 0.15) + 
-  scale_colour_gradientn(colours = c("purple", "red", "orange", "lightgreen"), 
+  geom_point(size = 0.1) + 
+  scale_colour_gradientn(colours = c("black", "purple", "red", "orange", "lightgreen"), 
                          name = expression(italic(r))) +
   scale_x_continuous(breaks = pretty_breaks(n = 3)) +
   scale_y_continuous(breaks = pretty_breaks(n = 3)) +
@@ -779,6 +775,23 @@ ggplot(A, aes(estimator, correlation)) +
 
 # PLOT MEDIANS ---------------------------------------------------------------------
 
+# Median k
+vv <- seq(5, 100, 5)
+
+dt <- lapply(vv, function(x) A[k <= x, median(correlation), estimator])
+
+names(dt) <- vv
+
+rbindlist(dt, idcol = "k") %>%
+  .[, k:= as.numeric(k)] %>%
+  ggplot(., aes(k, V1, color = estimator)) +
+  scale_color_discrete(name = "Estimator") +
+  labs(x = expression(italic(k)), 
+       y = expression(median(italic(r)))) +
+  geom_line() + 
+  theme_AP()
+
+# Median Nt/k
 dt.tmp <- A[, .(min = min(ratio), max = max(ratio))]
 
 v <-  seq(0, ceiling(dt.tmp$max), 20)
@@ -823,7 +836,7 @@ scatter.dt <- melt(A, measure.vars = c("k", "N[t]", "k[2]", "k[3]",
 gg <- list()
 for(i in names(scatter.dt)) {
   gg[[i]] <- ggplot(scatter.dt[[i]], aes(value, correlation)) +
-    geom_point(alpha = 0.2, size = 0.3) +
+    geom_point(alpha = 0.1, size = 0.3) +
     facet_wrap(~ variable, 
                scales = "free_x", 
                labeller = label_parsed,
