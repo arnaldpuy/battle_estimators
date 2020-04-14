@@ -575,6 +575,11 @@ stopCluster(cl)
 
 # ARRANGE OUTPUT --------------------------------------------------------------------
 
+C.all <- apply(mat, 1, function(x) x["N.all"] * (x["k"] + 1))
+C.azzini <- apply(mat, 1, function(x) x["N.azzini"] * (2 * x["k"] + 2))
+C.vars <- apply(mat, 1, function(x) x["N.vars"] * (x["k"] * ((1 / h) - 1) + 1))
+
+
 out_cor <- rbindlist(Y.ti, idcol = "row")
 
 mt.dt <- data.table(mat) %>%
@@ -592,8 +597,7 @@ full_output <- merge(mt.dt, out_cor) %>%
                                                     ifelse(estimator %in% "lamboni", "Lamboni", 
                                                            ifelse(estimator %in% "owen", "Owen", 
                                                                   ifelse(estimator %in% "vars", "Razavi and Gupta", 
-                                                                         "Sobol'"))))))))] %>%
-  .[, ratio:= Nt / k]
+                                                                         "Sobol'"))))))))] 
 
 # Define A matrix
 A <- full_output[,.SD[1:N], estimator]
@@ -619,7 +623,6 @@ A[, sum(correlation < 0)/ .N, estimator] %>%
        x = "") +
   theme_AP()
 
-
 ## ----map_negative, cache=TRUE, dependson="arrange_output", fig.height=5, fig.width=4.7----
 
 # MAP VALUES WITH NEGATIVE R --------------------------------------------------------
@@ -627,8 +630,7 @@ A[, sum(correlation < 0)/ .N, estimator] %>%
 index.neg <- A[, .I[correlation < 0]]
 
 A[index.neg] %>%
-  melt(., measure.vars = c("C.all", "C.azzini", "C.vars")) %>%
-  ggplot(., aes(value, k, color = correlation)) +
+  ggplot(., aes(Nt, k, color = correlation)) +
   geom_point(size = 0.5) +
   scale_colour_gradientn(colours = c("black", "purple", "red"), 
                          name = expression(italic(r))) +
@@ -639,7 +641,6 @@ A[index.neg] %>%
   facet_wrap(~estimator) + 
   theme_AP() + 
   theme(legend.position = "top")
-
 
 ## ----plot_full, cache=TRUE, dependson="arrange_output", fig.height=7.3, fig.width=4.2----
 
@@ -678,8 +679,7 @@ a <- ggplot(A, aes(correlation)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 # Scatterplot
-b <- melt(A, measure.vars = c("C.all", "C.azzini", "C.vars")) %>%
-  ggplot(., aes(value, k, color = correlation)) + 
+b <- ggplot(A, aes(Nt, k, color = correlation)) + 
   geom_point(size = 0.1) + 
   scale_colour_gradientn(colours = c("black", "purple", "red", "orange", "lightgreen"), 
                          name = expression(italic(r))) +
@@ -693,8 +693,7 @@ b <- melt(A, measure.vars = c("C.all", "C.azzini", "C.vars")) %>%
   theme(legend.position = "top")
 
 # Ratio
-c <- melt(A, measure.vars = c("C.all", "C.azzini", "C.vars")) %>% 
-  .[, ratio:= value / k] %>%
+c <- A[, ratio:= Nt / k] %>%
   ggplot(., aes(ratio, correlation)) +
   geom_point(alpha = 0.1, size = 0.2) +
   facet_wrap(~estimator, 
@@ -750,18 +749,15 @@ rbindlist(dt, idcol = "k") %>%
   theme_AP()
 
 # Median Nt/k
-A.ratio <- melt(A, measure.vars = c("C.all", "C.azzini", "C.vars")) %>%
-  .[, ratio:= value / k]
-dt.tmp <- A.ratio[, .(min = min(ratio), max = max(ratio))]
+dt.tmp <- A[, .(min = min(ratio), max = max(ratio))]
 
 v <-  seq(0, ceiling(dt.tmp$max), 20)
 a <- c(v[1], rep(v[-c(1, length(v))], each = 2), v[length(v)])
 indices <- matrix(a, ncol = 2 ,byrow = TRUE)
 
-
 out <- list()
 for(i in 1:nrow(indices)) {
-  out[[i]] <- A.ratio[ratio > indices[i, 1] & ratio < indices[i, 2]]
+  out[[i]] <- A[ratio > indices[i, 1] & ratio < indices[i, 2]]
 }
 
 names(out) <- rowmeans(indices)
