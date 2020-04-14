@@ -682,7 +682,8 @@ A[, sum(correlation < 0)/ .N, estimator] %>%
 index.neg <- A[, .I[correlation < 0]]
 
 A[index.neg] %>%
-  ggplot(., aes(Nt, k, color = correlation)) +
+  melt(., measure.vars = c("C.all", "C.azzini", "C.vars")) %>%
+  ggplot(., aes(value, k, color = correlation)) +
   geom_point(size = 0.5) +
   scale_colour_gradientn(colours = c("black", "purple", "red"), 
                          name = expression(italic(r))) +
@@ -733,7 +734,8 @@ a <- ggplot(A, aes(correlation)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 # Scatterplot
-b <- ggplot(A, aes(Nt, k, color = correlation)) +
+b <- melt(A, measure.vars = c("C.all", "C.azzini", "C.vars")) %>%
+  ggplot(., aes(value, k, color = correlation)) + 
   geom_point(size = 0.1) + 
   scale_colour_gradientn(colours = c("black", "purple", "red", "orange", "lightgreen"), 
                          name = expression(italic(r))) +
@@ -741,13 +743,15 @@ b <- ggplot(A, aes(Nt, k, color = correlation)) +
   scale_y_continuous(breaks = pretty_breaks(n = 3)) +
   labs(x = expression(italic(N[t])), 
        y = expression(italic(k))) + 
-  facet_wrap(~estimator, 
+  facet_wrap(~estimator,
              ncol = 3) + 
   theme_AP() + 
   theme(legend.position = "top")
 
 # Ratio
-c <- ggplot(A, aes(ratio, correlation)) +
+c <- melt(A, measure.vars = c("C.all", "C.azzini", "C.vars")) %>% 
+  .[, ratio:= value / k] %>%
+  ggplot(., aes(ratio, correlation)) +
   geom_point(alpha = 0.1, size = 0.2) +
   facet_wrap(~estimator, 
              ncol = 3) +
@@ -802,7 +806,9 @@ rbindlist(dt, idcol = "k") %>%
   theme_AP()
 
 # Median Nt/k
-dt.tmp <- A[, .(min = min(ratio), max = max(ratio))]
+A.ratio <- melt(A, measure.vars = c("C.all", "C.azzini", "C.vars")) %>%
+  .[, ratio:= value / k]
+dt.tmp <- A.ratio[, .(min = min(ratio), max = max(ratio))]
 
 v <-  seq(0, ceiling(dt.tmp$max), 20)
 a <- c(v[1], rep(v[-c(1, length(v))], each = 2), v[length(v)])
@@ -811,7 +817,7 @@ indices <- matrix(a, ncol = 2 ,byrow = TRUE)
 
 out <- list()
 for(i in 1:nrow(indices)) {
-  out[[i]] <- A[ratio > indices[i, 1] & ratio < indices[i, 2]]
+  out[[i]] <- A.ratio[ratio > indices[i, 1] & ratio < indices[i, 2]]
 }
 
 names(out) <- rowmeans(indices)
