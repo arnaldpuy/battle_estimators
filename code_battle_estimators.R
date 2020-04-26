@@ -1,8 +1,8 @@
-## ----setup, include=FALSE------------------------------------------------------------
+## ----setup, include=FALSE--------------------------------------------------------------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
 
 
-## ----preliminary steps, results="hide", message=FALSE, warning=FALSE-----------------
+## ----preliminary steps, results="hide", message=FALSE, warning=FALSE-------------------------------------------------
 
 # PRELIMINARY FUNCTIONS -------------------------------------------------------------
 
@@ -40,12 +40,12 @@ theme_AP <- function() {
 dir.create(".checkpoint")
 library("checkpoint")
 
-checkpoint("2020-01-23", 
-           R.version ="3.6.1", 
+checkpoint("2020-04-21", 
+           R.version ="3.6.3", 
            checkpointLocation = getwd())
 
 
-## ----savage_scores, cache=TRUE-------------------------------------------------------
+## ----savage_scores, cache=TRUE---------------------------------------------------------------------------------------
 
 # SAVAGE SCORES ----------------------------------------------------------------------
 
@@ -59,13 +59,21 @@ savage_scores <- function(x) {
 }
 
 
-## ----vars_functions, cache=TRUE------------------------------------------------------
+## ----vars_functions, cache=TRUE--------------------------------------------------------------------------------------
 
 # VARS FUNCTIONS --------------------------------------------------------------------
 
-vars_matrices <- function(star.centers, params, h) {
+vars_matrices <- function(star.centers, params, h, method = "QRN") {
   out <- center <- sections <- A <- B <- AB <- X <- out <- list()
-  mat <- randtoolbox::sobol(n = star.centers, dim = length(params))
+  if(method == "QRN") {
+    mat <- randtoolbox::sobol(n = star.centers, dim = length(params))
+  } else if(method == "R") {
+    mat <- replicate(length(params), stats::runif(star.centers))
+  } else if(method == "LHS") {
+    mat <- lhs::randomLHS(star.centers, length(params))
+  } else {
+    stop("method should be either QRN, R or LHS")
+  }
   for(i in 1:nrow(mat)) {
     center[[i]] <- mat[i, ]
     sections[[i]] <- sapply(center[[i]], function(x) {
@@ -129,7 +137,7 @@ vars_ti <- function(Y, star.centers, params, h) {
 }
 
 
-## ----ti_indices, cache=TRUE, dependson="savage_scores"-------------------------------
+## ----ti_indices, cache=TRUE, dependson="savage_scores"---------------------------------------------------------------
 
 # COMPUTATION OF SOBOL' Ti INDICES --------------------------------------------------
 
@@ -191,7 +199,7 @@ sobol_Ti <- function(d, N, params, total) {
 }
 
 
-## ----check_ti, cache=TRUE, dependson="ti_indices"------------------------------------
+## ----check_ti, cache=TRUE, dependson="ti_indices"--------------------------------------------------------------------
 
 # CHECK THAT ALL TI ESTIMATORS WORK -------------------------------------------------
 
@@ -256,7 +264,7 @@ vars.ind <- rbindlist(vars.ind, idcol = "Function")[
   setcolorder(., c("estimator", "Function", "Ti", "parameters"))
 
 
-## ----plot_prove, cache=TRUE, dependson="check_ti", dev="tikz", fig.height=3, fig.width=6.5----
+## ----plot_prove, cache=TRUE, dependson="check_ti", dev="tikz", fig.height=3, fig.width=6.5---------------------------
 
 # PLOT SENSITIVITY INDICES ----------------------------------------------------------
 
@@ -285,7 +293,33 @@ lapply(ind, function(x) rbindlist(x, idcol = "Function")) %>%
                              byrow = TRUE))
 
 
-## ----functions_metafunction, cache=TRUE----------------------------------------------
+## ----sampling_method, cache=TRUE, fig.width=5, fig.height=2.5--------------------------------------------------------
+
+# PLOT THE SAMPLING METHODS AVAILABLE -----------------------------------------
+
+method <- c("R", "QRN", "LHS")
+matrices <- "A"
+N <- 100
+set.seed(666) # For the random sampling
+params <- paste("X", 1:2, sep = "")
+A <- lapply(method, function(x) 
+  sobol_matrices(N = N, params = params, 
+                 matrices = matrices, method = x))
+
+names(A) <- method
+lapply(A, data.table) %>%
+  rbindlist(., idcol = "method") %>%
+  .[, method:= factor(method, levels = c("R", "LHS", "QRN"))] %>%
+  ggplot(., aes(X1, X2)) +
+  geom_point() +
+  scale_x_continuous(breaks = pretty_breaks(n = 3)) +
+  labs(x = expression(italic(X)[1]), 
+       y = expression(italic(X)[2])) +
+  facet_wrap(~method, ncol = 3) +
+  theme_AP()
+
+
+## ----functions_metafunction, cache=TRUE------------------------------------------------------------------------------
 
 # CREATE METAFUNCTION ---------------------------------------------------------------
 
@@ -323,7 +357,7 @@ a <- ggplot(data.frame(x = runif(100)), aes(x)) +
 a
 
 
-## ----function_distributions, cache=TRUE----------------------------------------------
+## ----function_distributions, cache=TRUE------------------------------------------------------------------------------
 
 # CREATE FUNCTION FOR RANDOM DISTRIBUTIONS ------------------------------------------
 
@@ -382,28 +416,46 @@ b
 
 # MERGE METAFUNCTION PLOT AND DISTRIBUTIONS PLOT ------------------------------------
 
-plot_grid(a, b, ncol = 1, labels = "auto", align = "hv")
+plot_grid(b, a, ncol = 1, labels = "auto", align = "hv")
 
 
-## ----show_metafunction, cache=TRUE, dependson=c("metafunction", "function_distributions", "sobol_indices_f", "sobol_matrices_functions")----
+## ----show_metafunction, cache=TRUE, dependson=c("metafunction", "function_distributions", "sobol_indices_f", "sobol_matrices_functions"), fig.width=5.3, fig.height=3.5----
 
 # EXEMPLIFY THE METAFUNCTION WITH AN EXAMPLE ----------------------------------------
 
-N <- 5000 # Sample size
+N <- 10000 # Sample size
 R <- 100 # Number of bootstrap replications
-k <- 55 # Number of model inputs
+k <- 17 # Number of model inputs
 k_2 <- 0.5 # Fraction of active pairwise interactions
-k_3 <- 0.3 # Fraction of active three-wise interactions
-epsilon <- 5 # to reproduce the results
+k_3 <- 0.2 # Fraction of active three-wise interactions
+epsilon <- 666  # to reproduce the results
 params <- paste("X", 1:k, sep = "")
 A <- sobol_matrices(N = N, params = params)
 
 # Compute
-Y <- metafunction(data = A, k_2 = k_2, k_3 = k_3, epsilon = epsilon)
-ind <- sobol_indices(Y = Y, N = N, params = params, R = R, boot = TRUE)
+Y <- sensobol::metafunction(data = A, k_2 = k_2, k_3 = k_3, epsilon = epsilon)
+indices <- data.table(sensobol::sobol_indices(Y = Y, N = N, params = params, boot = TRUE, R = R)) %>%
+  .[, parameters:= factor(parameters, levels = paste("X", 1:k, sep = ""))]
+
+ggplot(indices, aes(parameters, original, fill = sensitivity)) +
+  geom_bar(stat = "identity", 
+           position = position_dodge(0.6), 
+           color = "black") +
+  geom_errorbar(aes(ymin = low.ci, 
+                    ymax = high.ci), 
+                position = position_dodge(0.6)) +
+  scale_x_discrete(labels = ggplot2:::parse_safe) +
+  scale_y_continuous(breaks = pretty_breaks(n = 3)) +
+  labs(x = "", 
+       y = "Sobol' index") +
+  scale_fill_discrete(name = "Sobol' indices", 
+                      labels = c(expression(S[italic(i)]), 
+                                 expression(T[italic(i)]))) +
+  theme_AP() +
+  theme(legend.position = "top")
 
 
-## ----settings, cache=TRUE------------------------------------------------------------
+## ----settings, cache=TRUE--------------------------------------------------------------------------------------------
 
 # DEFINE SETTINGS -------------------------------------------------------------------
 
@@ -412,41 +464,67 @@ h <- 0.2 # step for VARS
 R <- 500 # Number of bootstrap replicas
 n_cores <- ceiling(detectCores() * 0.5)
 order <- "second"
-params <- c("k", "N_t", "k_2", "k_3", "epsilon", "phi", "delta") 
+params <- c("k_2", "k_3", "epsilon", "phi", "delta", "tau") 
 N.high <- 2 ^ 11 # Maximum sample size of the large sample matrix
 
 
-## ----sample_matrix, cache=TRUE, dependson="settings"---------------------------------
+## ----sample_matrix, cache=TRUE, dependson="settings"-----------------------------------------------------------------
 
 # CREATE SAMPLE MATRIX --------------------------------------------------------------
 
-mat <- sobol_matrices(N = N, params = params, order = order)
-mat[, 1] <- floor(qunif(mat[, 1], 3, 100)) # k
-mat[, 2] <- floor(qunif(mat[, 2], 10, 1000)) # N_t
-mat[, 3] <- round(qunif(mat[, 3], 0.3, 0.5), 2) # k_2
-mat[, 4] <- round(qunif(mat[, 4], 0.1, 0.3), 2) # k_3
-mat[, 5] <- floor(qunif(mat[, 5], 1, 200)) # Epsilon
-mat[, 6] <- floor(mat[, 6] * (8 - 1 + 1)) + 1 # Phi
-mat[, 7] <- floor(mat[, 7] * (3 - 1 + 1)) + 1 # Phi
+# Main matrix without Nt and k
+tmp <- sobol_matrices(N = N, params = c(params, "N_t", "k"), order = order, matrices = c("A", "B"))
+A <- tmp[1:N, ]
+B <- tmp[(N + 1):(2 * N), ]
 
-colnames(mat) <- params
+first <- 1:length(params)
+loop <- c(first, utils::combn(1:length(params), 2, simplify = FALSE))
 
+X <- rbind(A, B)
+for(i in loop) {
+  AB <- A
+  AB[, i] <- B[, i]
+  X <- rbind(X, AB)
+  }
+mat <- X
+
+# Matrix with clusters (Nt,k)
+AB <- AB2 <- AB3 <- A
+AB[, c("N_t", "k")] <- B[, c("N_t", "k")] # (Nt,k)
+AB2[, c("k_2", "k_3", "epsilon", "phi", "N_t", "k")] <-  B[, c("k_2", "k_3", "epsilon", "phi", "N_t", "k")] # Model uncertainties
+AB3[, c("delta", "tau")] <- B[, c("delta", "tau")] # Manageable uncertainties
+
+# Final matrix
+mat <- rbind(mat, AB, AB2, AB3)
+
+# TRANSFORM MATRIX --------
+
+mat[, 1] <- round(qunif(mat[, 1], 0.3, 0.5), 2) # k_2
+mat[, 2] <- round(qunif(mat[, 2], 0.1, 0.3), 2) # k_3
+mat[, 3] <- floor(qunif(mat[, 3], 1, 200)) # Epsilon
+mat[, 4] <- floor(mat[, 4] * (8 - 1 + 1)) + 1 # Phi
+mat[, 5] <- floor(mat[, 5] * (3 - 1 + 1)) + 1 # Delta
+mat[, 6] <- floor(mat[, 6] * (2 - 1 + 1)) + 1 # Tau
+mat[, 7] <- floor(qunif(mat[, 7], 10, 1000)) # Nt
+mat[, 8] <- floor(qunif(mat[, 8], 3, 100)) # k
+
+# Define the base sample matrix
 N.all <- apply(mat, 1, function(x) ceiling(x["N_t"] / (x["k"] + 1)))
 N.azzini <- apply(mat, 1, function(x) ceiling(x["N_t"] / (2 * x["k"] + 2)))
 N.vars <- apply(mat, 1, function(x) floor(x["N_t"] / ((x[["k"]] * ((1 / h) -1) + 1))))
-# N.vars <- apply(mat, 1, function(x) floor((x["N_t"] * h) / x["k"]))
 
-tmp <- cbind(mat, N.all, N.azzini, N.vars)
-sel <- c("N.all", "N.azzini", "N.vars")
+tmp <- data.table(cbind(mat, N.all, N.azzini, N.vars))
 
-mat <- as.matrix(data.table(tmp)[, (sel):= lapply(.SD, function(x) 
-  ifelse(x == 1 | x == 0, 2, x)), .SDcols = (sel)])
+# Now constrain N as a function of vars
+tmp <- tmp[, N.all:= ifelse(N.vars == 1 | N.vars == 0, ceiling(2 * (4 * k + 1) / (k + 1)), N.all)]
+tmp <- tmp[, N.azzini:= ifelse(N.vars == 1 | N.vars == 0, ceiling(2 * (4 * k + 1) / (2 * k + 2)), N.azzini)]
+tmp <- tmp[, N.vars:= ifelse(N.vars == 1 | N.vars == 0, 2, N.vars)]
 
-C.all <- apply(mat, 1, function(x) x["N.all"] * (x["k"] + 1))
-C.azzini <- apply(mat, 1, function(x) x["N.azzini"] * (2 * x["k"] + 2))
-C.vars <- apply(mat, 1, function(x) x["N.vars"] * (x["k"] * ((1 / h) - 1) + 1))
+C.all <- apply(tmp, 1, function(x) x["N.all"] * (x["k"] + 1))
+C.azzini <- apply(tmp, 1, function(x) x["N.azzini"] * (2 * x["k"] + 2))
+C.vars <- apply(tmp, 1, function(x) x["N.vars"] * (x["k"] * ((1 / h) - 1) + 1))
 
-mat <- cbind(mat, C.all, C.azzini, C.vars)
+mat <- cbind(tmp, C.all, C.azzini, C.vars)
 
 
 ## ----define_model, cache=TRUE, dependson=c("sample_matrices_functions", "metafunction", "ti_indices", "savage_scores", "vars_functions")----
@@ -454,20 +532,25 @@ mat <- cbind(mat, C.all, C.azzini, C.vars)
 # DEFINE MODEL ----------------------------------------------------------------------
 
 model_Ti <- function(k, N.all, N.azzini, N.vars, h, 
-                     N.high, k_2, k_3, epsilon, phi, delta) {
+                     N.high, k_2, k_3, epsilon, phi, delta, tau) {
   ind <- list()
   estimators <- c("jansen", "sobol", "homma", "monod", "azzini", 
                   "lamboni", "glen", "owen", "vars")
+  if(tau == 1) {
+    method <- "R"
+  } else if(tau == 2) {
+    method <- "QRN"
+  }
   all.but.azzini <- sobol_matrices(N = N.all, params = paste("X", 1:k, sep = ""), 
-                                   matrices = c("A", "AB"))
+                                   matrices = c("A", "AB"), method = method)
   azzini <- sobol_matrices(N = N.azzini, params = paste("X", 1:k, sep = ""), 
-                           matrices = c("A", "B", "AB", "BA"))
+                           matrices = c("A", "B", "AB", "BA"), method = method)
   owen.matrix <- sobol_matrices(N = N.azzini, params = paste("X", 1:k, sep = ""), 
-                           matrices = c("A", "B", "BA", "CB"))
+                           matrices = c("A", "B", "BA", "CB"), method = method)
   vars.matrix <- vars_matrices(star.centers = N.vars, params = paste("X", 1:k, sep = ""), 
-                               h = h)
+                               h = h, method = method)
   large.matrix <- sobol_matrices(N = N.high, params = paste("X", 1:k, sep = ""), 
-                                 matrices = c("A", "AB"))
+                                 matrices = c("A", "AB"), method = method)
   set.seed(epsilon)
   all.matrices <- random_distributions(X = rbind(all.but.azzini, azzini, 
                                                  owen.matrix, vars.matrix, 
@@ -541,7 +624,7 @@ model_Ti <- function(k, N.all, N.azzini, N.vars, h,
 }
 
 
-## ----model_run, cache=TRUE, dependson=c("define_model", "settings", "sample_matrix")----
+## ----model_run, cache=TRUE, dependson=c("define_model", "settings", "sample_matrix")---------------------------------
 
 # RUN MODEL -------------------------------------------------------------------------
 
@@ -552,7 +635,7 @@ registerDoParallel(cl)
 # Compute
 Y.ti <- foreach(i=1:nrow(mat), 
                 .packages = c("sensobol", "data.table", "pcaPP", 
-                                 "logitnorm", "dplyr")) %dopar%
+                              "logitnorm", "dplyr")) %dopar%
   {
     model_Ti(k = mat[[i, "k"]], 
              k_2 = mat[[i, "k_2"]], 
@@ -560,6 +643,7 @@ Y.ti <- foreach(i=1:nrow(mat),
              epsilon = mat[[i, "epsilon"]],
              phi = mat[[i, "phi"]],
              delta = mat[[i, "delta"]],
+             tau = mat[[i, "tau"]],
              N.all = mat[[i, "N.all"]], 
              N.azzini = mat[[i, "N.azzini"]], 
              N.vars = mat[[i, "N.vars"]],
@@ -571,14 +655,9 @@ Y.ti <- foreach(i=1:nrow(mat),
 stopCluster(cl)
 
 
-## ----arrange_output, cache=TRUE, dependson="model_run"-------------------------------
+## ----arrange_output, cache=TRUE, dependson="model_run"---------------------------------------------------------------
 
 # ARRANGE OUTPUT --------------------------------------------------------------------
-
-C.all <- apply(mat, 1, function(x) x["N.all"] * (x["k"] + 1))
-C.azzini <- apply(mat, 1, function(x) x["N.azzini"] * (2 * x["k"] + 2))
-C.vars <- apply(mat, 1, function(x) x["N.vars"] * (x["k"] * ((1 / h) - 1) + 1))
-
 
 out_cor <- rbindlist(Y.ti, idcol = "row")
 
@@ -597,13 +676,14 @@ full_output <- merge(mt.dt, out_cor) %>%
                                                     ifelse(estimator %in% "lamboni", "Lamboni", 
                                                            ifelse(estimator %in% "owen", "Owen", 
                                                                   ifelse(estimator %in% "vars", "Razavi and Gupta", 
-                                                                         "Sobol'"))))))))] 
+                                                                         "Sobol'"))))))))] %>%
+  .[!estimator == "Lamboni"]
 
-# Define A matrix
-A <- full_output[,.SD[1:N], estimator]
+# Define A matrix (but drop Lamboni)
+A <- full_output[!estimator == "Lamboni",.SD[1:N], estimator]
 
 
-## ----export_output, cache=TRUE, dependson="arrange_output"---------------------------
+## ----export_output, cache=TRUE, dependson="arrange_output"-----------------------------------------------------------
 
 # EXPORT OUTPUT ---------------------------------------------------------------------
 
@@ -611,7 +691,7 @@ fwrite(A, "A.csv")
 fwrite(full_output, "full_output.csv")
 
 
-## ----plot_negative, cache=TRUE, dependson="arrange_output", fig.height=3, fig.width=3.5----
+## ----plot_negative, cache=TRUE, dependson="arrange_output", fig.height=3, fig.width=3.5------------------------------
 
 # PLOT PROPORTION OF NEGATIVE VALUES ------------------------------------------------
 
@@ -623,7 +703,8 @@ A[, sum(correlation < 0)/ .N, estimator] %>%
        x = "") +
   theme_AP()
 
-## ----map_negative, cache=TRUE, dependson="arrange_output", fig.height=5, fig.width=4.7----
+
+## ----map_negative, cache=TRUE, dependson="arrange_output", fig.height=4.5, fig.width=5.2-----------------------------
 
 # MAP VALUES WITH NEGATIVE R --------------------------------------------------------
 
@@ -638,11 +719,13 @@ A[index.neg] %>%
   scale_y_continuous(breaks = pretty_breaks(n = 3)) +
   labs(x = expression(italic(N[t])), 
        y = expression(italic(k))) + 
-  facet_wrap(~estimator) + 
+  facet_wrap(~estimator, 
+             ncol = 4) + 
   theme_AP() + 
   theme(legend.position = "top")
 
-## ----plot_full, cache=TRUE, dependson="arrange_output", fig.height=7.3, fig.width=4.2----
+
+## ----plot_full, cache=TRUE, dependson="arrange_output", fig.height=6.5, fig.width=5.3--------------------------------
 
 # PLOT OUTPUT -----------------------------------------------------------------------
 
@@ -670,7 +753,7 @@ a <- ggplot(A, aes(correlation)) +
              lty = 2, 
              color = "red") +
   facet_wrap(~estimator, 
-             ncol = 3) +
+             ncol = 4) +
   scale_x_continuous(breaks = pretty_breaks(n = 3)) +
   scale_y_continuous(breaks = pretty_breaks(n = 3)) +
   labs(x = expression(italic(r)), 
@@ -688,7 +771,7 @@ b <- ggplot(A, aes(Nt, k, color = correlation)) +
   labs(x = expression(italic(N[t])), 
        y = expression(italic(k))) + 
   facet_wrap(~estimator,
-             ncol = 3) + 
+             ncol = 4) + 
   theme_AP() + 
   theme(legend.position = "top")
 
@@ -697,7 +780,7 @@ c <- A[, ratio:= Nt / k] %>%
   ggplot(., aes(ratio, correlation)) +
   geom_point(alpha = 0.1, size = 0.2) +
   facet_wrap(~estimator, 
-             ncol = 3) +
+             ncol = 4) +
   geom_smooth() +
   labs(x = expression(italic(N[t]/k)), 
        y = expression(italic(r))) +
@@ -709,14 +792,14 @@ c <- A[, ratio:= Nt / k] %>%
 plot_grid(a, b, ncol = 1, labels = "auto", rel_heights = c(0.85, 1))
 
 
-## ----plot_ratio, cache=TRUE, dependson="plot_full", fig.height=4, fig.width=4.7------
+## ----plot_ratio, cache=TRUE, dependson="plot_full", fig.height=4, fig.width=5.2--------------------------------------
 
 # DISPLAY THE RATIO NT/K FOR EACH SIMULATION AND ESTIMATOR -------------------------
 
 c
 
 
-## ----plot_boxplot, cache=TRUE, dependson="arrange_output", fig.width=4, fig.height=3----
+## ----plot_boxplot, cache=TRUE, dependson="arrange_output", fig.width=4, fig.height=3---------------------------------
 
 # PLOT BOXPLOT ----------------------------------------------------------------------
 
@@ -728,11 +811,10 @@ ggplot(A, aes(estimator, correlation)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
-## ----plot_medians, cache=TRUE, dependson="arrange_output", fig.width=4.5, fig.height=3----
+## ----plot_medians, cache=TRUE, dependson="arrange_output", fig.width=4.5, fig.height=2.8-----------------------------
 
 # PLOT MEDIANS ----------------------------------------------------------------------
 
-# Median k
 vv <- seq(5, 100, 5)
 
 dt <- lapply(vv, function(x) A[k <= x, median(correlation), estimator])
@@ -775,14 +857,14 @@ lapply(out, function(x) x[, median(correlation, na.rm = TRUE), estimator]) %>%
   theme_AP()
 
 
-## ----scatter_sensitivity, cache=TRUE, dependson="arrange_output", fig.height=4.7, fig.width=4.7----
+## ----scatter_sensitivity, cache=TRUE, dependson="arrange_output", fig.height=4.7, fig.width=4.7----------------------
 
 # SCATTERPLOTS OF MODEL OUTPUT AGAINST PARAMETERS -----------------------------------
 
 A <- setnames(A, c("N_t", "k_2", "k_3"), c("N[t]", "k[2]", "k[3]"))
 
 scatter.dt <- melt(A, measure.vars = c("k", "N[t]", "k[2]", "k[3]", 
-                                       "epsilon", "phi", "delta")) %>%
+                                       "epsilon", "phi", "delta", "tau")) %>%
   split(., .$estimator)
 
 gg <- list()
@@ -804,7 +886,7 @@ for(i in names(scatter.dt)) {
 gg
 
 
-## ----sensitivity_analysis, cache=TRUE, dependson=c("arrange_output", "sobol_indices")----
+## ----sensitivity_analysis, cache=TRUE, dependson=c("arrange_output", "sobol_indices")--------------------------------
 
 # SENSITIVITY ANALYSIS --------------------------------------------------------------
 
@@ -815,57 +897,73 @@ full_output[is.na(correlation), ]
 full_output <- full_output[, correlation:= ifelse(is.na(correlation) == TRUE, 0, correlation)]
 
 # New vector of parameters to plot better
-params.new <- c("k", "N[t]", "k[2]", "k[3]", "epsilon", "phi", "delta") 
+params.new <- c("k[2]", "k[3]", "epsilon", "phi", "delta", "tau") 
 
-# Compute Sobol' indices
-indices <- full_output[, sobol_indices(Y = correlation, 
-                                       N = N,
-                                       params = params.new,
-                                       first = "jansen",
-                                       R = R, 
-                                       boot = TRUE, 
-                                       order = order), 
-                       estimator]
+# Compute Sobol' indices except for the cluster Nt,k
+indices <- full_output[!row %in% mat[, tail(.I, N)]][
+  , sobol_indices(Y = correlation, 
+                  N = N,
+                  params = params.new,
+                  first = "jansen",
+                  boot = TRUE,
+                  R = R,
+                  order = order), 
+  estimator]
 
-# Compute Sobol' indices for dummy parameter
-indicesD <- full_output[, sobol_dummy(Y = correlation, 
-                                      N = N, 
-                                      params = params.new, 
-                                      boot = TRUE, 
-                                      R = R), 
-                        estimator]
+# Compute Sobol' indices for cluster
+index.clusters <- mat[, tail(.I, 3 * N)]
+
+indicesC <- rbind(full_output[row %in% 1:(2 * N)], full_output[row %in% index.clusters])[
+  , sobol_indices(Y = correlation, 
+                  N = N,
+                  params = c("N[t]~k", "f(x)", "delta~tau"),
+                  first = "jansen",
+                  boot = TRUE,
+                  R = R,
+                  order = "first"), 
+  estimator]
+
+# Final
+indices <- rbind(indices, indicesC[parameters == "N[t]~k"])
 
 # Export
 fwrite(indices, "indices.csv")
 
 
-## ----plot_sobol_indices, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=5, fig.width=4.7----
+## ----plot_sobol_indices, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=4.5, fig.width=5.4----
 
 # PLOT SOBOL' INDICES ----------------------------------------------------------------
 
-# Reorder the levels of the parameters
-ggplot(indices[sensitivity == "Si" |
-         sensitivity == "Ti"], aes(parameters, original, fill = sensitivity)) +
-  geom_bar(stat = "identity", 
-           position = position_dodge(0.6), 
-           color = "black") +
-  geom_errorbar(aes(ymin = low.ci, 
-                    ymax = high.ci), 
-                position = position_dodge(0.6)) +
-  scale_x_discrete(labels = ggplot2:::parse_safe) +
-  scale_y_continuous(breaks = pretty_breaks(n = 3)) +
-  facet_wrap(~estimator, 
-             ncol = 3) +
-  labs(x = "", 
-       y = "Sobol' index") +
-  scale_fill_discrete(name = "Sobol' indices", 
-                      labels = c(expression(S[italic(i)]), 
-                                 expression(T[italic(i)]))) +
-  theme_AP() +
-  theme(legend.position = "top")
+all.indices <- list(indices, indicesC)
+
+gg <- list()
+for(i in seq_along(all.indices)) {
+  gg[[i]] <- ggplot(all.indices[[i]][sensitivity == "Si" |
+                                       sensitivity == "Ti"], 
+                    aes(parameters, original, fill = sensitivity)) +
+    geom_bar(stat = "identity", 
+             position = position_dodge(0.6), 
+             color = "black") +
+    geom_errorbar(aes(ymin = low.ci, 
+                      ymax = high.ci), 
+                  position = position_dodge(0.6)) +
+    scale_x_discrete(labels = ggplot2:::parse_safe) +
+    scale_y_continuous(breaks = pretty_breaks(n = 3)) +
+    facet_wrap(~estimator, 
+               ncol = 4) +
+    labs(x = "", 
+         y = "Sobol' index") +
+    scale_fill_discrete(name = "Sobol' indices", 
+                        labels = c(expression(S[italic(i)]), 
+                                   expression(T[italic(i)]))) +
+    theme_AP() +
+    theme(legend.position = "top")
+}
+
+gg
 
 
-## ----sum_si, cache=TRUE, dependson="sensitivity_analysis", fig.height=3, fig.width=3.5----
+## ----sum_si, cache=TRUE, dependson="sensitivity_analysis", fig.height=3, fig.width=3.5-------------------------------
 
 # SUM OF FIRST-ORDER INDICES --------------------------------------------------------
 
@@ -882,12 +980,13 @@ merge(indices[sensitivity == "Si", sum(original), estimator],
   theme_AP()
 
 
-## ----second_order, cache=TRUE, dependson=c("sensitivity_analysis", "plot_sobol_indices"), fig.height=3, fig.width=4.3----
+## ----second_order, cache=TRUE, dependson=c("sensitivity_analysis", "plot_sobol_indices"), fig.height=2.5, fig.width=4.7----
 
-# PLOT SECOND-ORDER EFFECTS -------------------------------------------------------
+# PLOT SECOND-ORDER EFFECTS ---------------------------------------------------------
 
 indices[sensitivity == "Sij"] %>%
   .[low.ci > 0] %>%
+  .[, sensitivity:= ifelse(sensitivity %in% "Sij", "S[ij]", sensitivity)] %>%
   .[, parameters:= gsub(parameters,
                         pattern = ".",
                         replacement = "~",
@@ -899,6 +998,10 @@ indices[sensitivity == "Sij"] %>%
   geom_hline(yintercept = 0, 
              lty = 2, 
              color = "red") +
+  facet_grid(~sensitivity, 
+             scales = "free_x", 
+             space = "free_x", 
+             labeller = label_parsed) +
   scale_x_discrete(labels = ggplot2:::parse_safe) +
   scale_color_discrete(name = "Estimator") +
   labs(x = "", 
@@ -906,18 +1009,17 @@ indices[sensitivity == "Sij"] %>%
   theme_AP()
 
 
-## ----export_indices, cache=TRUE, dependson="sensitivity_analysis"--------------------
+## ----export_indices, cache=TRUE, dependson="sensitivity_analysis"----------------------------------------------------
 
-# EXPORT SOBOL' INDICES -------------------------------------------------------------
-
+# EXPORT SOBOL' INDICES ---------------------------------------------------------------
 
 fwrite(dt_median, "dt_median.csv")
 
 
 
-## ----session_information-------------------------------------------------------------
+## ----session_information---------------------------------------------------------------------------------------------
 
-# SESSION INFORMATION ------------------------------------------------------------
+# SESSION INFORMATION --------------------------------------------------------------
 
 sessionInfo()
 
