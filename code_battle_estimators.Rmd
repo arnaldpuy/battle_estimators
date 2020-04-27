@@ -539,7 +539,7 @@ mat <- X
 # Matrix with clusters (Nt,k)
 AB <- AB2 <- AB3 <- A
 AB[, c("N_t", "k")] <- B[, c("N_t", "k")] # (Nt,k)
-AB2[, c("k_2", "k_3", "epsilon", "phi", "N_t", "k")] <-  B[, c("k_2", "k_3", "epsilon", "phi", "N_t", "k")] # Model uncertainties
+AB2[, c("k_2", "k_3", "epsilon", "phi")] <-  B[, c("k_2", "k_3", "epsilon", "phi")] # Model uncertainties
 AB3[, c("delta", "tau")] <- B[, c("delta", "tau")] # Manageable uncertainties
 
 # Final matrix
@@ -735,6 +735,11 @@ full_output <- merge(mt.dt, out_cor) %>%
 
 # Define A matrix (but drop Lamboni)
 A <- full_output[!estimator == "Lamboni",.SD[1:N], estimator]
+
+# Define matrix for total variance
+VY.dt <- full_output[row %in% c(1:N)][
+  , .(VY = 1 / N * sum((correlation - ((1 / N) * sum(correlation))) ^ 2)), 
+  estimator]
 ```
 
 ```{r export_output, cache=TRUE, dependson="arrange_output"}
@@ -987,13 +992,16 @@ indicesC <- rbind(full_output[row %in% 1:(2 * N)], full_output[row %in% index.cl
   estimator]
 
 # Final
-indices <- rbind(indices, indicesC[parameters == "N[t]~k"])
+indices <- rbind(indices, indicesC[parameters == "N[t]~k"]) %>%
+  merge(., VY.dt, by = "estimator") %>%
+  .[, unnormalized:= original * VY]
 
 # Export
 fwrite(indices, "indices.csv")
+fwrite(indicesC, "indicesC.csv")
 ```
 
-```{r plot_sobol_indices, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=4.5, fig.width=5.4}
+```{r plot_sobol_indices, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=6.5, fig.width=5.4}
 
 # PLOT SOBOL' INDICES ----------------------------------------------------------------
 
@@ -1020,11 +1028,58 @@ for(i in seq_along(all.indices)) {
                         labels = c(expression(S[italic(i)]), 
                                    expression(T[italic(i)]))) +
     theme_AP() +
-    theme(legend.position = "top")
+    theme(legend.position = "none")
 }
 
-gg
+# Get legend
+legend <- get_legend(gg[[1]] + theme(legend.position = "top"))
+
+top <- plot_grid(gg[[1]], gg[[2]] + theme(legend.position = "none"), 
+                 align = "hv", labels = "auto", ncol = 1)
+
+plot_grid(legend, top, ncol = 1, rel_heights = c(0.1, 1))
 ```
+
+```{r plot_sobol_indices_unnorm, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=6.5, fig.width=5.4}
+
+# PLOT UNNORMALIZED SOBOL' INDICES --------------------------------------------
+
+indicesC <- indicesC %>%
+  merge(., VY.dt, by = "estimator") %>%
+  .[, unnormalized:= original * VY]
+
+all.indicesC <- list(indices, indicesC)
+
+hh <- list()
+for(i in seq_along(all.indicesC)) {
+  hh[[i]] <- ggplot(all.indicesC[[i]][sensitivity == "Si" |
+                                       sensitivity == "Ti"], 
+                    aes(parameters, unnormalized, fill = sensitivity)) +
+    geom_bar(stat = "identity", 
+             position = position_dodge(0.6), 
+             color = "black") +
+    scale_x_discrete(labels = ggplot2:::parse_safe) +
+    scale_y_continuous(breaks = pretty_breaks(n = 3)) +
+    facet_wrap(~estimator, 
+               ncol = 4) +
+    labs(x = "", 
+         y = expression(T[italic(i)] * V[Y])) +
+    scale_fill_discrete(name = "Sobol' indices", 
+                        labels = c(expression(S[italic(i)]), 
+                                   expression(T[italic(i)]))) +
+    theme_AP() +
+    theme(legend.position = "none")
+}
+
+# Get legend
+legend <- get_legend(hh[[1]] + theme(legend.position = "top"))
+
+top <- plot_grid(hh[[1]], hh[[2]] + theme(legend.position = "none"), 
+                 align = "hv", labels = "auto", ncol = 1)
+
+plot_grid(legend, top, ncol = 1, rel_heights = c(0.1, 1))
+```
+
 
 ```{r sum_si, cache=TRUE, dependson="sensitivity_analysis", fig.height=3, fig.width=3.5}
 
@@ -1043,9 +1098,9 @@ merge(indices[sensitivity == "Si", sum(original), estimator],
   theme_AP()
 ```
 
-```{r second_order, cache=TRUE, dependson=c("sensitivity_analysis", "plot_sobol_indices"), fig.height=2.5, fig.width=4.7}
+```{r second_order, cache=TRUE, dependson=c("sensitivity_analysis", "plot_sobol_indices"), fig.height=2.5, fig.width=4.7, eval = FALSE}
 
-# PLOT SECOND-ORDER EFFECTS ---------------------------------------------------------
+# PLOT SECOND-ORDER EFFECTS ----------------------------------------------------------
 
 indices[sensitivity == "Sij"] %>%
   .[low.ci > 0] %>%
