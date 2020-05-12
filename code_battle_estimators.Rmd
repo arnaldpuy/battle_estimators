@@ -541,14 +541,15 @@ dt.out <- data.table(out)
 
 dt.out[V1 < 1 & V1 > 0] %>%
   setnames(., c("V1", "V2"), 
-           c("sum(S[i], i==1, k)", "frac(1,k)~sum(T[i]>0.05, i == 1, k)")) %>%
+           c("sum(S[i], i==1, k)", 
+             "frac(1,k)~sum((T[i]>0.05), i == 1, k)")) %>%
   melt(., measure.vars = c("sum(S[i], i==1, k)", 
-                           "frac(1,k)~sum(T[i]>0.05, i == 1, k)")) %>%
+                           "frac(1,k)~sum((T[i]>0.05), i == 1, k)")) %>%
   ggplot(., aes(value)) +
   geom_histogram() +
   facet_wrap(~variable, 
              labeller = label_parsed) + 
-  labs(x = "%", y = "Count") +
+  labs(x = "Proportion", y = "Count") +
   theme_AP()
 ```
 
@@ -628,6 +629,12 @@ C.azzini <- apply(tmp, 1, function(x) x["N.azzini"] * (2 * x["k"] + 2))
 C.vars <- apply(tmp, 1, function(x) x["N.vars"] * (x["k"] * ((1 / h) - 1) + 1))
 
 mat <- cbind(tmp, C.all, C.azzini, C.vars)
+```
+
+```{r export_matrix, cache=TRUE, dependson="sample_matrix"}
+
+# EXPORT SAMPLE MATRIX ------------------------------------------------------------
+fwrite(mat, "mat.csv")
 ```
 
 ## Define the model
@@ -979,6 +986,24 @@ lapply(out, function(x) x[, median(correlation, na.rm = TRUE), estimator]) %>%
   theme_AP()
 ```
 
+```{r plot_n_ratio, cache=TRUE, dependson=c("arrange_output", "plot_medians"), fig.height=4, fig.width=5}
+
+# PLOT NUMBER OF SIMULATIONS AGAINST NT/K RATIO ---------------------------------
+
+rbindlist(out, idcol = "samples")[, .N, .(estimator, samples)] %>%
+  .[, samples:= factor(samples, levels = rowmeans(indices))] %>%
+  ggplot(., aes(samples, N, fill = estimator)) +
+  scale_y_log10() +
+  scale_fill_discrete(name = "Estimator") +
+  labs(x = "Mean Nt/k ratio", 
+       y = "Nº of simulations") +
+  geom_bar(stat = "identity", 
+           position = position_dodge(0.6)) +
+  theme_AP() + 
+  theme(legend.position = "top") +
+  guides(fill = guide_legend(nrow = 4, byrow = TRUE))
+```
+
 # Sensitivity analysis
 
 ## Scatterplots
@@ -1194,6 +1219,92 @@ indices[sensitivity == "Sij"] %>%
 fwrite(dt_median, "dt_median.csv")
 
 ```
+
+```{r explorativity, cache=TRUE}
+
+# CALCULATE EXPLORATIVITY AND ECONOMY ----------------------------------------------
+
+# Create functions
+economy_fun <- function(n, k, h) {
+  Owen <- k / (2 * (k + 1))
+  Razavi <- (2 / h * k) / (1 + 1 / h * k)
+  Azzini <- k / (k + 1)
+  Glen <- k / (k + 1)
+  Sobol <- k / (k + 1)
+  Homma <- k / (k + 1)
+  Jansen <- k / (k + 1)
+  Janon <- k / (k + 1)
+  eff <- c(Owen, Razavi, Azzini, Glen, Sobol, 
+           Homma, Jansen, Janon)
+  return(eff)
+}
+
+explorativity_fun <- function(n, k, h) {
+  Owen <- 3 / ( 2 * (1 + k))
+  Razavi <- (1 + 1 / h) / (1 + 1 / h * k)
+  Azzini <- 1 / (k + 1)
+  Glen <- 1 / (k + 1)
+  Sobol <- 2 / (k + 1)
+  Homma <- 2 / (k + 1)
+  Jansen <- 2 / (k + 1)
+  Janon <- 2 / (k + 1)
+  ec <- c(Owen, Razavi, Azzini, Glen, 
+          Sobol, Homma, Jansen, Janon)
+  return(ec)
+}
+
+full_fun <- function(n, k, h) {
+  arrangement <- data.table(c("pseudo-Owen", 
+                              "Razavi and Gupta", 
+                              "Azzini and Rosati", 
+                              "Glen and Isaacs", 
+                              "Sobol'", 
+                              "Homma and Saltelli", 
+                              "Jansen", 
+                              "Janon/Monod"))
+  ec <- economy_fun(n, k, h)
+  ex <- explorativity_fun(n, k, h)
+  out <- data.table(cbind(ec, ex))
+  final <- cbind(arrangement, out)
+  setnames(final, "V1", "Arrangement")
+  return(final)
+}
+
+vec.k <- c(10, 100, 1000)
+data.ex <- lapply(vec.k, function(k) full_fun(n = 4, k = k, h = 0.2))
+names(data.ex) <- vec.k
+
+plot.data.ex <- rbindlist(data.ex, idcol = "k") %>%
+  .[, k:= as.numeric(k)]
+```
+
+```{r plot_explorativity, cache=TRUE, dependson="explorativity", fig.width=4.7, fig.height=2.8}
+
+# PLOT EXPLORATIVITY ------------------------------------------------------------
+
+ggplot(plot.data.ex[k == 10], aes(ec, ex)) +
+  geom_point() +
+  labs(x = "Economy", 
+       y = "Explorativity") +
+  geom_text_repel(aes(label = Arrangement)) + 
+  theme_AP()
+```
+
+```{r plot_explorativity2, cache=TRUE, dependson="explorativity", fig.width=4.7, fig.height=7}
+
+# PLOT EXPLORATIVITY ------------------------------------------------------------
+
+plot.data.ex[, k:= paste("k = ", k, sep = "")] %>%
+  ggplot(., aes(ec, ex)) +
+  geom_point() +
+  labs(x = "Economy", 
+       y = "Explorativity") +
+  geom_text_repel(aes(label = Arrangement)) + 
+  facet_wrap(~k, ncol = 1) +
+  scale_y_log10() +
+  theme_AP()
+```
+
 \newpage 
 
 # Session information

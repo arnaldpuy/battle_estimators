@@ -1,8 +1,8 @@
-## ----setup, include=FALSE---------------------------------------------------
+## ----setup, include=FALSE-----------------------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
 
 
-## ----preliminary steps, results="hide", message=FALSE, warning=FALSE--------
+## ----preliminary steps, results="hide", message=FALSE, warning=FALSE----------
 
 # PRELIMINARY FUNCTIONS -------------------------------------------------------------
 
@@ -45,7 +45,7 @@ checkpoint("2020-04-21",
            checkpointLocation = getwd())
 
 
-## ----savage_scores, cache=TRUE----------------------------------------------
+## ----savage_scores, cache=TRUE------------------------------------------------
 
 # SAVAGE SCORES ----------------------------------------------------------------------
 
@@ -59,7 +59,7 @@ savage_scores <- function(x) {
 }
 
 
-## ----vars_functions, cache=TRUE---------------------------------------------
+## ----vars_functions, cache=TRUE-----------------------------------------------
 
 # VARS FUNCTIONS --------------------------------------------------------------------
 
@@ -137,7 +137,7 @@ vars_ti <- function(Y, star.centers, params, h) {
 }
 
 
-## ----ti_indices, cache=TRUE, dependson="savage_scores"----------------------
+## ----ti_indices, cache=TRUE, dependson="savage_scores"------------------------
 
 # COMPUTATION OF SOBOL' Ti INDICES --------------------------------------------------
 
@@ -199,7 +199,7 @@ sobol_Ti <- function(d, N, params, total) {
 }
 
 
-## ----check_ti, cache=TRUE, dependson="ti_indices"---------------------------
+## ----check_ti, cache=TRUE, dependson="ti_indices"-----------------------------
 
 # CHECK THAT ALL TI ESTIMATORS WORK -------------------------------------------------
 
@@ -293,7 +293,7 @@ lapply(ind, function(x) rbindlist(x, idcol = "Function")) %>%
                              byrow = TRUE))
 
 
-## ----sampling_method, cache=TRUE, fig.width=5, fig.height=2.5---------------
+## ----sampling_method, cache=TRUE, fig.width=5, fig.height=2.5-----------------
 
 # PLOT THE SAMPLING METHODS AVAILABLE -----------------------------------------
 
@@ -320,7 +320,7 @@ lapply(A, data.table) %>%
   theme_AP()
 
 
-## ----functions_metafunction, cache=TRUE-------------------------------------
+## ----functions_metafunction, cache=TRUE---------------------------------------
 
 # CREATE METAFUNCTION ---------------------------------------------------------------
 
@@ -358,7 +358,7 @@ a <- ggplot(data.frame(x = runif(100)), aes(x)) +
 a
 
 
-## ----function_distributions, cache=TRUE-------------------------------------
+## ----function_distributions, cache=TRUE---------------------------------------
 
 # CREATE FUNCTION FOR RANDOM DISTRIBUTIONS ------------------------------------------
 
@@ -456,7 +456,7 @@ ggplot(indices, aes(parameters, original, fill = sensitivity)) +
   theme(legend.position = "top")
 
 
-## ----functions_check_metafunction, cache=TRUE-------------------------------
+## ----functions_check_metafunction, cache=TRUE---------------------------------
 
 # FUNCTIONS TO COMPUTE SUM OF SI AND PROPORTION OF SI > 0.05 FOR METAFUNCTION -----
 
@@ -499,18 +499,19 @@ dt.out <- data.table(out)
 
 dt.out[V1 < 1 & V1 > 0] %>%
   setnames(., c("V1", "V2"), 
-           c("sum(S[i], i==1, k)", "frac(1,k)~sum(T[i]>0.05, i == 1, k)")) %>%
+           c("sum(S[i], i==1, k)", 
+             "frac(1,k)~sum((T[i]>0.05), i == 1, k)")) %>%
   melt(., measure.vars = c("sum(S[i], i==1, k)", 
-                           "frac(1,k)~sum(T[i]>0.05, i == 1, k)")) %>%
+                           "frac(1,k)~sum((T[i]>0.05), i == 1, k)")) %>%
   ggplot(., aes(value)) +
   geom_histogram() +
   facet_wrap(~variable, 
              labeller = label_parsed) + 
-  labs(x = "%", y = "Count") +
+  labs(x = "Proportion", y = "Count") +
   theme_AP()
 
 
-## ----settings, cache=TRUE---------------------------------------------------
+## ----settings, cache=TRUE-----------------------------------------------------
 
 # DEFINE SETTINGS -------------------------------------------------------------------
 
@@ -523,7 +524,7 @@ params <- c("k_2", "k_3", "epsilon", "phi", "delta", "tau")
 N.high <- 2 ^ 11 # Maximum sample size of the large sample matrix
 
 
-## ----sample_matrix, cache=TRUE, dependson="settings"------------------------
+## ----sample_matrix, cache=TRUE, dependson="settings"--------------------------
 
 # CREATE SAMPLE MATRIX --------------------------------------------------------------
 
@@ -580,6 +581,12 @@ C.azzini <- apply(tmp, 1, function(x) x["N.azzini"] * (2 * x["k"] + 2))
 C.vars <- apply(tmp, 1, function(x) x["N.vars"] * (x["k"] * ((1 / h) - 1) + 1))
 
 mat <- cbind(tmp, C.all, C.azzini, C.vars)
+
+
+## ----export_matrix, cache=TRUE, dependson="sample_matrix"---------------------
+
+# EXPORT SAMPLE MATRIX ------------------------------------------------------------
+fwrite(mat, "mat.csv")
 
 
 ## ----define_model, cache=TRUE, dependson=c("sample_matrices_functions", "metafunction", "ti_indices", "savage_scores", "vars_functions")----
@@ -715,7 +722,7 @@ Y.ti <- foreach(i=1:nrow(mat),
 stopCluster(cl)
 
 
-## ----arrange_output, cache=TRUE, dependson="model_run"----------------------
+## ----arrange_output, cache=TRUE, dependson="model_run"------------------------
 
 # ARRANGE OUTPUT --------------------------------------------------------------------
 
@@ -748,7 +755,7 @@ VY.dt <- full_output[row %in% c(1:N)][
   estimator]
 
 
-## ----export_output, cache=TRUE, dependson="arrange_output"------------------
+## ----export_output, cache=TRUE, dependson="arrange_output"--------------------
 
 # EXPORT OUTPUT ---------------------------------------------------------------------
 
@@ -920,6 +927,24 @@ lapply(out, function(x) x[, median(correlation, na.rm = TRUE), estimator]) %>%
   scale_color_discrete(name = "Estimator") +
   scale_x_log10() +
   theme_AP()
+
+
+## ----plot_n_ratio, cache=TRUE, dependson=c("arrange_output", "plot_medians"), fig.height=4, fig.width=5----
+
+# PLOT NUMBER OF SIMULATIONS AGAINST NT/K RATIO ---------------------------------
+
+rbindlist(out, idcol = "samples")[, .N, .(estimator, samples)] %>%
+  .[, samples:= factor(samples, levels = rowmeans(indices))] %>%
+  ggplot(., aes(samples, N, fill = estimator)) +
+  scale_y_log10() +
+  scale_fill_discrete(name = "Estimator") +
+  labs(x = "Mean Nt/k ratio", 
+       y = "Nº of simulations") +
+  geom_bar(stat = "identity", 
+           position = position_dodge(0.6)) +
+  theme_AP() + 
+  theme(legend.position = "top") +
+  guides(fill = guide_legend(nrow = 4, byrow = TRUE))
 
 
 ## ----scatter_sensitivity, cache=TRUE, dependson="arrange_output", fig.height=4.7, fig.width=4.7----
@@ -1123,7 +1148,7 @@ indices[sensitivity == "Sij"] %>%
   theme_AP()
 
 
-## ----export_indices, cache=TRUE, dependson="sensitivity_analysis"-----------
+## ----export_indices, cache=TRUE, dependson="sensitivity_analysis"-------------
 
 # EXPORT SOBOL' INDICES ---------------------------------------------------------------
 
@@ -1131,7 +1156,92 @@ fwrite(dt_median, "dt_median.csv")
 
 
 
-## ----session_information----------------------------------------------------
+## ----explorativity, cache=TRUE------------------------------------------------
+
+# CALCULATE EXPLORATIVITY AND ECONOMY ----------------------------------------------
+
+# Create functions
+economy_fun <- function(n, k, h) {
+  Owen <- k / (2 * (k + 1))
+  Razavi <- (2 / h * k) / (1 + 1 / h * k)
+  Azzini <- k / (k + 1)
+  Glen <- k / (k + 1)
+  Sobol <- k / (k + 1)
+  Homma <- k / (k + 1)
+  Jansen <- k / (k + 1)
+  Janon <- k / (k + 1)
+  eff <- c(Owen, Razavi, Azzini, Glen, Sobol, 
+           Homma, Jansen, Janon)
+  return(eff)
+}
+
+explorativity_fun <- function(n, k, h) {
+  Owen <- 3 / ( 2 * (1 + k))
+  Razavi <- (1 + 1 / h) / (1 + 1 / h * k)
+  Azzini <- 1 / (k + 1)
+  Glen <- 1 / (k + 1)
+  Sobol <- 2 / (k + 1)
+  Homma <- 2 / (k + 1)
+  Jansen <- 2 / (k + 1)
+  Janon <- 2 / (k + 1)
+  ec <- c(Owen, Razavi, Azzini, Glen, 
+          Sobol, Homma, Jansen, Janon)
+  return(ec)
+}
+
+full_fun <- function(n, k, h) {
+  arrangement <- data.table(c("pseudo-Owen", 
+                              "Razavi and Gupta", 
+                              "Azzini and Rosati", 
+                              "Glen and Isaacs", 
+                              "Sobol'", 
+                              "Homma and Saltelli", 
+                              "Jansen", 
+                              "Janon/Monod"))
+  ec <- economy_fun(n, k, h)
+  ex <- explorativity_fun(n, k, h)
+  out <- data.table(cbind(ec, ex))
+  final <- cbind(arrangement, out)
+  setnames(final, "V1", "Arrangement")
+  return(final)
+}
+
+vec.k <- c(10, 100, 1000)
+data.ex <- lapply(vec.k, function(k) full_fun(n = 4, k = k, h = 0.2))
+names(data.ex) <- vec.k
+
+plot.data.ex <- rbindlist(data.ex, idcol = "k") %>%
+  .[, k:= as.numeric(k)]
+
+
+## ----plot_explorativity, cache=TRUE, dependson="explorativity", fig.width=4.7, fig.height=2.8----
+
+# PLOT EXPLORATIVITY ------------------------------------------------------------
+
+ggplot(plot.data.ex[k == 10], aes(ec, ex)) +
+  geom_point() +
+  labs(x = "Economy", 
+       y = "Explorativity") +
+  geom_text_repel(aes(label = Arrangement)) + 
+  theme_AP()
+
+
+## ----plot_explorativity2, cache=TRUE, dependson="explorativity", fig.width=4.7, fig.height=7----
+
+# PLOT EXPLORATIVITY ------------------------------------------------------------
+
+plot.data.ex[, k:= paste("k = ", k, sep = "")] %>%
+  ggplot(., aes(ec, ex)) +
+  geom_point() +
+  labs(x = "Economy", 
+       y = "Explorativity") +
+  geom_text_repel(aes(label = Arrangement)) + 
+  facet_wrap(~k, ncol = 1) +
+  scale_y_log10() +
+  theme_AP()
+
+
+## ----session_information------------------------------------------------------
 
 # SESSION INFORMATION --------------------------------------------------------------
 
@@ -1150,7 +1260,7 @@ cat("Num threads: "); print(detectCores(logical = TRUE))
 cat("RAM:         "); print (get_ram()); cat("\n")
 
 
-## ----double_check_performance, echo = FALSE, cache=TRUE---------------------
+## ----double_check_performance, echo = FALSE, cache=TRUE-----------------------
 
 # Modify the model to yield the Ti indices of the
 # metafunction as a model output
