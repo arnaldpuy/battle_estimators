@@ -397,7 +397,7 @@ function_list <- list(
 
 ```{r plot_functions_metafunction, cache=TRUE, dependson="functions_metafunction", fig.height=2.7, fig.width=5, fig.cap="Functions used in the metafunction of @Becker2019."}
 
-# PLOT METAFUNCTION -----------------------------------------------------------------
+# PLOT METAFUNCTION ----------------------------------------------------------------
 
 a <- ggplot(data.frame(x = runif(100)), aes(x)) +
   map(1:length(function_list), function(nn) {
@@ -464,7 +464,7 @@ out <- data.table(sapply(seq_along(names_ff), function(x)
 b <- data.table::melt(out) %>%
   ggplot(., aes(value, group = variable, colour = variable)) + 
   geom_density() + 
-  scale_color_discrete(labels = c("U(0,10)", 
+  scale_color_discrete(labels = c("U(0, 1)", 
                                   "N(0.5, 0.2)", 
                                   "Beta(8, 2)",  
                                   "Beta(2, 8)", 
@@ -482,7 +482,7 @@ b
 
 ```{r metafunctions_distributions, cache=TRUE, dependson=c("functions_metafunction", "function_distributions", "plot_functions_metafunction", "plot_function_distributions"), fig.height=5, fig.width=5}
 
-# MERGE METAFUNCTION PLOT AND DISTRIBUTIONS PLOT ------------------------------------
+# MERGE METAFUNCTION PLOT AND DISTRIBUTIONS PLOT -----------------------------------
 
 plot_grid(b, a, ncol = 1, labels = "auto", align = "hv")
 ```
@@ -1285,7 +1285,7 @@ explorativity_fun <- function(n, k, h) {
   Owen <- 3 / ( 2 * (1 + k))
   Razavi <- 1 / ( h * ( 1 + ( 1 / h - 1) * k))
   Azzini <- 1 / (k + 1)
-  Glen <- 1 / (k + 1)
+  Glen <- 2 / (k + 1)
   Saltelli <- 2 / (k + 1)
   Homma <- 2 / (k + 1)
   Jansen <- 2 / (k + 1)
