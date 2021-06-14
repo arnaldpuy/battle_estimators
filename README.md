@@ -1,16 +1,15 @@
 
-# The Battle of Total-Order Sensitivity Estimators
+# The battle of total-order sensitivity estimators
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4276948.svg)](https://doi.org/10.5281/zenodo.4276948)
 
-This is the preliminary code of an investigation on total-order sensitivity indices. We assess which estimator (Sobol', Jansen, Homma and Saltelli, Azzini and Rosati, Janon/Monod, Owen, Glen and Isaac or Razavi and Gupta) performs better in an 8-dimension hypercube where the following parameters are treated as uncertain:
+Arnald Puy, William Becker, Samuele Lo Piano, Andrea Saltelli
 
-* The sampling method to create the sampliing matrix.
-* The total number of model runs available.
-* The function dimensionality.
-* The proportion of active two-order effects.
-* The proportion of active three-order effects.
-* The randomness in the test function.
-* The distribution of the model inputs.
-* The performance measure used.
+This is the `R` code of the paper, whose abstract is the following:
+
+*Sensitivity analysis helps identify which model inputs convey the most uncertainty to the model output. One of the most authoritative measures in global sensitivity analysis is the Sobol' total-order index, which can be computed with several different estimators. Although previous comparisons exist, it is hard to know which estimator performs best since the results are contingent on the benchmark setting defined by the analyst (the sampling method, the distribution of the model inputs, the number of model runs, the test function or model and its dimensionality, the weight of higher order effects or the performance measure selected). Here we compare several total-order estimators in an eight-dimension hypercube where these benchmark parameters are treated as random parameters. This arrangement significantly relaxes the dependency of the results on the benchmark design. We observe that the most accurate estimators are Razavi and Gupta's, Jansen's or Janon/Monod's for factor prioritization, and Jansen's, Janon/Monod's or Azzini and Rosati's for approaching the ``true'' total-order indices. The rest lag considerably behind. Our work helps analysts navigate the myriad of total-order formulae by reducing the uncertainty in the selection of the most appropriate estimator.*
+
+# Information
+
+We provide the code in `.R`, `.rmd` and `.pdf`.
 

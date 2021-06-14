@@ -1,8 +1,8 @@
-## ----setup, include=FALSE-------------------------------------------------------------------------------------------------------------
+## ----setup, include=FALSE-------------------------------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
 
 
-## ----preliminary steps, results="hide", message=FALSE, warning=FALSE------------------------------------------------------------------
+## ----preliminary steps, results="hide", message=FALSE, warning=FALSE------------------
 
 # PRELIMINARY FUNCTIONS -------------------------------------------------------------
 
@@ -16,12 +16,9 @@ loadPackages <- function(x) {
   }
 }
 
-# Install development version of sensobol
-remotes::install_github("arnaldpuy/sensobol")
-
 # Load the packages
 loadPackages(c("Rcpp", "RcppArmadillo", "tidyverse", "parallel", "foreach", 
-               "doParallel", "Rfast", "data.table", "scales", "cowplot", 
+               "doParallel", "Rfast", "data.table", "scales", "cowplot",
                "benchmarkme", "logitnorm", "sensobol", "ggrepel"))
 
 # Create custom theme
@@ -40,12 +37,12 @@ theme_AP <- function() {
 dir.create(".checkpoint")
 library("checkpoint")
 
-checkpoint("2020-11-05", 
+checkpoint("2021-02-05", 
            R.version ="4.0.3", 
            checkpointLocation = getwd())
 
 
-## ----savage_scores, cache=TRUE--------------------------------------------------------------------------------------------------------
+## ----savage_scores, cache=TRUE--------------------------------------------------------
 
 # SAVAGE SCORES ----------------------------------------------------------------------
 
@@ -59,7 +56,7 @@ savage_scores <- function(x) {
 }
 
 
-## ----vars_functions, cache=TRUE-------------------------------------------------------------------------------------------------------
+## ----vars_functions, cache=TRUE-------------------------------------------------------
 
 # VARS FUNCTIONS --------------------------------------------------------------------
 
@@ -147,9 +144,113 @@ vars_ti <- function(Y, star.centers, params, h, method = "one.step") {
 }
 
 
-## ----ti_indices, cache=TRUE, dependson="savage_scores"--------------------------------------------------------------------------------
+## ----ti_indices, cache=TRUE, dependson="savage_scores"--------------------------------
 
 # COMPUTATION OF SOBOL' Ti INDICES --------------------------------------------------
+
+# SOBOL MATRICES ------------
+
+scrambled_sobol <- function(matrices, A, B, C, order, cluster) {
+  first <- 1:ncol(A)
+  N <- nrow(A)
+  if(order == "first") {
+    loop <- first
+  } else if(order == "second") {
+    second <- c(first, utils::combn(1:ncol(A), 2, simplify = FALSE))
+    loop <- second
+  } else if(order == "third") {
+    second <- c(first, utils::combn(1:ncol(A), 2, simplify = FALSE))
+    third <- c(second, utils::combn(1:ncol(A), 3, simplify = FALSE))
+    loop <- third
+  } else {
+    stop("order should be either first, second or third")
+  }
+  if(is.null(cluster) == FALSE) {
+    loop <- cluster
+  }
+  AB.mat <- "AB" %in% matrices
+  BA.mat <- "BA" %in% matrices
+  CB.mat <- "CB" %in% matrices
+  if(AB.mat == TRUE) {
+    X <- rbind(A, B)
+    for(i in loop) {
+      AB <- A
+      AB[, i] <- B[, i]
+      X <- rbind(X, AB)
+    }
+    AB <- X[(2 * N + 1):nrow(X), ]
+  } else if(AB.mat == FALSE) {
+    AB <- NULL
+  }
+  if(BA.mat == TRUE) {
+    W <- rbind(A, B)
+    for(i in loop) {
+      BA <- B
+      BA[, i] <- A[, i]
+      W <- rbind(W, BA)
+    }
+    BA <- W[(2 * N + 1) : nrow(W), ]
+  } else if(BA.mat == FALSE) {
+    BA <- NULL
+  }
+  if(CB.mat == TRUE) {
+    Z <- rbind(A, B)
+    for(i in loop) {
+      CB <- C
+      CB[, i] <- B[, i]
+      Z <- rbind(Z, CB)
+    }
+    CB <- Z[(2 * N + 1) : nrow(Z), ]
+  } else if(CB.mat == FALSE) {
+    CB <- NULL
+  }
+  final <- rbind(AB, BA, CB)
+  return(final)
+}
+
+
+sobol_matrices <- function(matrices = c("A", "B", "AB"),
+                           N, params, order = "first",
+                           method = "QRN", cluster = NULL) {
+  k <- length(params)
+  n.matrices <- ifelse(any(stringr::str_detect(matrices, "C")) == FALSE, 2, 3)
+  if(method == "QRN") {
+    df <- randtoolbox::sobol(n = N, dim = k * n.matrices, scrambling = 1)
+  } else if(method == "R") {
+    df <- replicate(k * n.matrices, stats::runif(N))
+  } else if(method == "LHS") {
+    df <- lhs::randomLHS(N, n.matrices * k)
+  } else {
+    stop("method should be either QRN, R or LHS")
+  }
+  A <- df[, 1:k]
+  B <- df[, (k + 1) : (k * 2)]
+  if(n.matrices == 3) {
+    C <- df[, ((k * 2) + 1):(k * 3)]
+  } else {
+    C <- NULL
+  }
+  out <- scrambled_sobol(matrices = matrices,
+                         A = A, B = B, C = C,
+                         order = order, cluster = cluster)
+  A.mat <- "A" %in% matrices
+  B.mat <- "B" %in% matrices
+  C.mat <- "C" %in% matrices
+  if(A.mat == FALSE) {
+    A <- NULL
+  }
+  if(B.mat == FALSE) {
+    B <- NULL
+  }
+  if(C.mat == FALSE) {
+    C <- NULL
+  }
+  final <- rbind(A, B, C, out)
+  colnames(final) <- params
+  return(final)
+}
+
+# COMPUTATION OF SOBOL' TOTAL-ORDER INDICES
 
 sobol_Ti <- function(d, N, params, total) {
   m <- matrix(d, nrow = N)
@@ -214,7 +315,7 @@ sobol_Ti <- function(d, N, params, total) {
 }
 
 
-## ----check_ti, cache=TRUE, dependson="ti_indices"-------------------------------------------------------------------------------------
+## ----check_ti, cache=TRUE, dependson="ti_indices"-------------------------------------
 
 # CHECK THAT ALL TI ESTIMATORS WORK -------------------------------------------------
 
@@ -281,7 +382,7 @@ vars.ind <- rbindlist(vars.ind, idcol = "Function")[
   setcolorder(., c("estimator", "Function", "Ti", "parameters"))
 
 
-## ----plot_prove, cache=TRUE, dependson="check_ti", dev="tikz", fig.height=3, fig.width=6.5--------------------------------------------
+## ----plot_prove, cache=TRUE, dependson="check_ti", dev="tikz", fig.height=3, fig.width=6.5----
 
 # PLOT SENSITIVITY INDICES ----------------------------------------------------------
 
@@ -307,7 +408,7 @@ lapply(ind, function(x) rbindlist(x, idcol = "Function")) %>%
                              byrow = TRUE))
 
 
-## ----sampling_method, cache=TRUE, fig.width=5, fig.height=2.5-------------------------------------------------------------------------
+## ----sampling_method, cache=TRUE, fig.width=5, fig.height=2.5-------------------------
 
 # PLOT THE SAMPLING METHODS AVAILABLE -----------------------------------------
 
@@ -335,7 +436,7 @@ lapply(A, data.table) %>%
   theme(strip.background = element_rect(fill = "white"))
 
 
-## ----functions_metafunction, cache=TRUE-----------------------------------------------------------------------------------------------
+## ----functions_metafunction, cache=TRUE-----------------------------------------------
 
 # CREATE METAFUNCTION ---------------------------------------------------------------
 
@@ -353,7 +454,7 @@ function_list <- list(
 )
 
 
-## ----plot_functions_metafunction, cache=TRUE, dependson="functions_metafunction", fig.height=2.7, fig.width=5, fig.cap="Functions used in the metafunction of @Becker2019."----
+## ----plot_functions_metafunction, cache=TRUE, dependson="functions_metafunction", fig.height=2.7, fig.width=5, fig.cap="Functions used in the metafunction of @Becker2020."----
 
 # PLOT METAFUNCTION ----------------------------------------------------------------
 
@@ -382,17 +483,30 @@ a <- ggplot(data.frame(x = runif(100)), aes(x)) +
 a
 
 
-## ----function_distributions, cache=TRUE-----------------------------------------------------------------------------------------------
+## ----function_distributions, cache=TRUE-----------------------------------------------
 
 # CREATE FUNCTION FOR RANDOM DISTRIBUTIONS ------------------------------------------
 
+# Density function
+sample_distributions_PDF <- list(
+  "uniform" = function(x) dunif(x, 0, 1),
+  "normal" = function(x) dnorm(x, 0.5, 0.15),
+  "beta" = function(x) dbeta(x, 8, 2),
+  "beta2" = function(x) dbeta(x, 2, 8),
+  "beta3" = function(x) dbeta(x, 2, 0.8),
+  "beta4" = function(x) dbeta(x, 0.8, 2),
+  "logitnormal" = function(x) dlogitnorm(x, 0, 3.16)
+  # Logit-normal, Bates too?
+)
+
+# Quantile function
 sample_distributions <- list(
   "uniform" = function(x) x,
-  "normal" = function(x) qnorm(x, 0.5, 0.2),
+  "normal" = function(x) qnorm(x, 0.5, 0.15),
   "beta" = function(x) qbeta(x, 8, 2),
   "beta2" = function(x) qbeta(x, 2, 8),
-  "beta3" = function(x) qbeta(x, 2, 0.5),
-  "beta4" = function(x) qbeta(x, 0.5, 2),
+  "beta3" = function(x) qbeta(x, 2, 0.8),
+  "beta4" = function(x) qbeta(x, 0.8, 2),
   "logitnormal" = function(x) qlogitnorm(x, 0, 3.16)
   # Logit-normal, Bates too?
 )
@@ -409,29 +523,33 @@ random_distributions <- function(X, phi) {
 }
 
 
-## ----plot_function_distributions, cache=TRUE, dependson=c("function_distributions", "function_distributions"), fig.height=2.7, fig.width=4.6, fig.cap="Distributions used in the metafunction of @Becker2019."----
+## ----plot_function_distributions, cache=TRUE, dependson=c("function_distributions", "function_distributions"), fig.height=2.7, fig.width=4.6, fig.cap="Distributions used in the metafunction of @Becker2020."----
 
 # PLOT DISTRIBUTIONS ----------------------------------------------------------------
 
 names_ff <- names(sample_distributions)
-prove <- randtoolbox::sobol(n = 1000, dim = length(names_ff))
+x <- seq(0, 1, .001)
 
-out <- data.table(sapply(seq_along(names_ff), function(x) 
-  sample_distributions[[names_ff[x]]](prove[, x])))
+out <- matrix(rep(x, length(names_ff)), ncol = length(names_ff))
+dt <- data.table(sapply(seq_along(names_ff), function(x) 
+  sample_distributions_PDF[[names_ff[x]]](out[, x])))
 
-b <- data.table::melt(out) %>%
-  ggplot(., aes(value, group = variable, colour = variable)) + 
-  geom_density() + 
+dt <- setnames(dt, paste("V", 1:length(names_ff), sep = ""), names_ff) %>%
+  .[, x:= x] %>%
+  melt(., measure.vars = names_ff)
+
+b <- ggplot(dt, aes(x = x, y = value, group = variable)) +
+  geom_line(aes(color = variable)) +
   scale_color_discrete(labels = c("U(0, 1)", 
-                                  "N(0.5, 0.2)", 
+                                  expression(N[T](0.5, 0.15, 0, 1)), 
                                   "Beta(8, 2)",  
                                   "Beta(2, 8)", 
-                                  "Beta(2, 0.5)", 
-                                  "Beta(0.5, 2)", 
+                                  "Beta(2, 0.8)", 
+                                  "Beta(0.8, 2)", 
                                   "Logitnormal(0, 3.16)"),
                        name = "Distribution") +
   labs(x = expression(italic(x)), 
-       y = "Density") +
+       y = "PDF") +
   theme_AP() +
   theme(legend.text.align = 0)
 
@@ -449,8 +567,8 @@ plot_grid(b, a, ncol = 1, labels = "auto", align = "hv")
 
 # EXEMPLIFY THE METAFUNCTION WITH AN EXAMPLE ----------------------------------------
 
-N <- 10000 # Sample size
-R <- 100 # Number of bootstrap replications
+N <- 10^4 # Sample size
+R <- 10^2 # Number of bootstrap replications
 k <- 17 # Number of model inputs
 k_2 <- 0.5 # Fraction of active pairwise interactions
 k_3 <- 0.2 # Fraction of active three-wise interactions
@@ -481,7 +599,7 @@ ggplot(indices, aes(parameters, original, fill = sensitivity)) +
   theme(legend.position = "top")
 
 
-## ----functions_check_metafunction, cache=TRUE-----------------------------------------------------------------------------------------
+## ----functions_check_metafunction, cache=TRUE-----------------------------------------
 
 # FUNCTIONS TO COMPUTE SUM OF SI AND PROPORTION OF SI > 0.05 FOR METAFUNCTION -----
 
@@ -509,7 +627,7 @@ try_metafunction <- function(x) {
 }
 
 
-## ----functions_check_metafunction2, cache=TRUE, dependson="functions_check_metafunction"----------------------------------------------
+## ----functions_check_metafunction2, cache=TRUE, dependson="functions_check_metafunction"----
 
 # COMPUTE SUM OF SI AND PROPORTION OF SI > 0.05 FOR METAFUNCTION --------------------
 
@@ -518,9 +636,9 @@ out <- do.call(rbind, RepParallel(n, try_metafunction(3:100), simplify = FALSE))
 dt.out <- data.table(out)
 
 
-## ----plot_proportion_meta, cache=TRUE, dependson="functions_check_metafunction2", fig.height=2.8, fig.width=4.8-----------------------
+## ----plot_proportion_meta, cache=TRUE, dependson="functions_check_metafunction2", fig.height=2.8, fig.width=4.8----
 
-# PLOT
+# PLOT -----------------------------------------------------------------------------
 
 dt.out[V1 < 1 & V1 > 0] %>%
   setnames(., c("V1", "V2"), 
@@ -537,7 +655,7 @@ dt.out[V1 < 1 & V1 > 0] %>%
   theme(strip.background = element_rect(fill = "white"))
 
 
-## ----settings, cache=TRUE-------------------------------------------------------------------------------------------------------------
+## ----settings, cache=TRUE-------------------------------------------------------------
 
 # DEFINE SETTINGS -------------------------------------------------------------------
 
@@ -545,38 +663,31 @@ N <- 2 ^ 11 # Sample size of sample matrix
 h <- 0.2 # step for VARS
 R <- 500 # Number of bootstrap replicas
 n_cores <- ceiling(detectCores() * 0.5)
-order <- "second"
+order <- "first"
 params <- c("k_2", "k_3", "epsilon", "phi", "delta", "tau") 
 N.high <- 2 ^ 11 # Maximum sample size of the large sample matrix
 
 
-## ----sample_matrix, cache=TRUE, dependson="settings"----------------------------------------------------------------------------------
+## ----sample_matrix, cache=TRUE, dependson="settings"----------------------------------
 
 # CREATE SAMPLE MATRIX --------------------------------------------------------------
 
-# Main matrix without Nt and k
-tmp <- sobol_matrices(N = N, params = c(params, "N_t", "k"), order = order, matrices = c("A", "B"))
-A <- tmp[1:N, ]
-B <- tmp[(N + 1):(2 * N), ]
+# Create sample matrix
+mat <- sensobol::sobol_matrices(N = N, params = c(params, "N_t", "k"), order = order)
+Nt.k.rows <- which(rep(c("A", "B", params, "N_t", "k"), each = N) %in% c("N_t", "k"))
+mat <- mat[-Nt.k.rows, ] # Exclude AB matrices for Nt and k
 
-first <- 1:length(params)
-loop <- c(first, utils::combn(1:length(params), 2, simplify = FALSE))
+# Create A and B matrices to create the clusters
+A <- mat[1:N, ]
+B <- mat[(N + 1):(2 * N), ]
 
-X <- rbind(A, B)
-for(i in loop) {
-  AB <- A
-  AB[, i] <- B[, i]
-  X <- rbind(X, AB)
-  }
-mat <- X
-
-# Matrix with clusters (Nt,k)
+# Matrix with clusters (Nt,k), (k_2, k_3, epsilon, phi), (delta, tau)
 AB <- AB2 <- AB3 <- A
 AB[, c("N_t", "k")] <- B[, c("N_t", "k")] # (Nt,k)
 AB2[, c("k_2", "k_3", "epsilon", "phi")] <-  B[, c("k_2", "k_3", "epsilon", "phi")] # Model uncertainties
 AB3[, c("delta", "tau")] <- B[, c("delta", "tau")] # Manageable uncertainties
 
-# Final matrix
+# Final matrices
 mat <- rbind(mat, AB, AB2, AB3)
 
 # TRANSFORM MATRIX --------
@@ -585,7 +696,7 @@ mat[, 1] <- round(qunif(mat[, 1], 0.3, 0.5), 2) # k_2
 mat[, 2] <- round(qunif(mat[, 2], 0.1, 0.3), 2) # k_3
 mat[, 3] <- floor(qunif(mat[, 3], 1, 200)) # Epsilon
 mat[, 4] <- floor(mat[, 4] * (8 - 1 + 1)) + 1 # Phi
-mat[, 5] <- floor(mat[, 5] * (3 - 1 + 1)) + 1 # Delta
+mat[, 5] <- floor(mat[, 5] * (2 - 1 + 1)) + 1 # Delta
 mat[, 6] <- floor(mat[, 6] * (2 - 1 + 1)) + 1 # Tau
 mat[, 7] <- floor(qunif(mat[, 7], 10, 1000)) # Nt
 mat[, 8] <- floor(qunif(mat[, 8], 3, 100)) # k
@@ -611,8 +722,15 @@ C.vars <- apply(tmp, 1, function(x) x["N.vars"] * (x["k"] * ((1 / h) - 1) + 1))
 
 mat <- cbind(tmp, C.all, C.saltelli, C.azzini, C.vars)
 
+# CREATE MATRICES FOR RANKS AND MAE
 
-## ----export_matrix, cache=TRUE, dependson="sample_matrix"-----------------------------------------------------------------------------
+mat.ranks <- mat # Define matrix for ranks
+rows.delta <- which(rep(c("A", "B", params), each = N) %in% "delta") # Rows for delta
+rows.nt.k <- (nrow(mat) - N + 1):nrow(mat) # Rows for cluster Nt_k
+mat.mae <- mat[-c(rows.delta, rows.nt.k)] # Define matrix for mae
+
+
+## ----export_matrix, cache=TRUE, dependson="sample_matrix"-----------------------------
 
 # EXPORT SAMPLE MATRIX ------------------------------------------------------------
 fwrite(mat, "mat.csv")
@@ -623,7 +741,8 @@ fwrite(mat, "mat.csv")
 # DEFINE MODEL ----------------------------------------------------------------------
 
 model_Ti <- function(k, N.all, N.azzini, N.saltelli, N.vars, h, 
-                     N.high, k_2, k_3, epsilon, phi, delta, tau) {
+                     N.high, k_2, k_3, epsilon, phi, delta, tau, 
+                     ranks = TRUE) {
   ind <- list()
   estimators <- c("jansen", "homma", "monod", "azzini", "glen", "owen", "vars", "saltelli")
   if(tau == 1) {
@@ -642,7 +761,7 @@ model_Ti <- function(k, N.all, N.azzini, N.saltelli, N.vars, h,
                            matrices = c("A", "B", "AB", "BA"), method = method)
   set.seed(epsilon)
   owen.matrix <- sobol_matrices(N = N.azzini, params = paste("X", 1:k, sep = ""), 
-                           matrices = c("A", "B", "BA", "CB"), method = method)
+                                matrices = c("A", "B", "BA", "CB"), method = method)
   set.seed(epsilon)
   vars.matrix <- vars_matrices(star.centers = N.vars, params = paste("X", 1:k, sep = ""), 
                                h = h, method = method)
@@ -657,10 +776,12 @@ model_Ti <- function(k, N.all, N.azzini, N.saltelli, N.vars, h,
                                                  saltelli,
                                                  large.matrix), 
                                        phi = phi)
+  
   output <- sensobol::metafunction(data = all.matrices, 
                                    k_2 = k_2, 
                                    k_3 = k_3, 
                                    epsilon = epsilon)
+  
   full.ind <- sobol_Ti(d = tail(output, nrow(large.matrix)), 
                        N = N.high, 
                        params = paste("X", 1:k, sep = ""), 
@@ -705,10 +826,11 @@ model_Ti <- function(k, N.all, N.azzini, N.saltelli, N.vars, h,
     ind[[i]][, sample.size:= "n"]
     ind[[i]] <- rbind(ind[[i]], full.ind)
   }
+  
   # Arrange data
   out <- rbindlist(ind, idcol = "estimator") 
   out.wide <- dcast(out, estimator + parameters ~ sample.size, value.var = "Ti")
-    # Replace NaN
+  # Replace NaN
   for (i in seq_along(out.wide)) 
     set(out.wide, i=which(is.nan(out.wide[[i]])), j = i, value = 0)
   # Replace Inf
@@ -717,110 +839,263 @@ model_Ti <- function(k, N.all, N.azzini, N.saltelli, N.vars, h,
   # Replcace Na
   for (i in seq_along(out.wide)) 
     set(out.wide, i=which(is.na(out.wide[[i]])), j = i, value = 0)
-  # CHECK DELTA
-  if(delta == 1) { # Regular Pear
-    final <- out.wide[, .(correlation = cor(N, n)), estimator]
-  } else if(delta == 2) { # kendall tau
-    final <- out.wide[, .(correlation = pcaPP::cor.fk(N, n)), estimator]
-  } else { # Savage ranks
-    final <- out.wide[, lapply(.SD, savage_scores), .SDcols = c("N", "n"), estimator][
-      , .(correlation = cor(N, n)), estimator]
+  
+  # COMPUTE RANKS
+  if(ranks == TRUE) {
+    if(delta == 1) { # kendall tau
+      final <- out.wide[, .(value = pcaPP::cor.fk(N, n)), estimator]
+    } else { # Savage ranks
+      final <- out.wide[, lapply(.SD, savage_scores), .SDcols = c("N", "n"), estimator][
+        , .(value = cor(N, n)), estimator]
+    }
+    
+    # COMPUTE MAE
+  } else if(ranks == FALSE) {
+    final <- out.wide[, .(value = mean(abs(N - n))), estimator]
   }
   return(final)
 }
 
 
-## ----model_run, cache=TRUE, dependson=c("define_model", "settings", "sample_matrix")--------------------------------------------------
+## ----parallel_setting-----------------------------------------------------------------
 
-# RUN MODEL -------------------------------------------------------------------------
+# DEFINE THE PARALLEL COMPUTING ----------------------------------------------------
 
 # Define parallel computing
 cl <- makeCluster(n_cores)
 registerDoParallel(cl)
 
-# Compute
-Y.ti <- foreach(i=1:nrow(mat), 
-                .packages = c("sensobol", "data.table", "pcaPP", 
-                              "logitnorm", "dplyr")) %dopar%
+
+## ----model_run_ranks, cache=TRUE, dependson=c("define_model", "settings", "sample_matrix", "ti_indices", "vars_functions")----
+
+# RUN MODEL FOR RANKS -------------------------------------------------------------
+
+# Compute for ranks
+Y.ranks <- foreach(i=1:nrow(mat.ranks), 
+                   .packages = c("sensobol", "data.table", "pcaPP", 
+                                 "logitnorm", "dplyr")) %dopar%
   {
-    model_Ti(k = mat[[i, "k"]], 
-             k_2 = mat[[i, "k_2"]], 
-             k_3 = mat[[i, "k_3"]],
-             epsilon = mat[[i, "epsilon"]],
-             phi = mat[[i, "phi"]],
-             delta = mat[[i, "delta"]],
-             tau = mat[[i, "tau"]],
-             N.all = mat[[i, "N.all"]], 
-             N.azzini = mat[[i, "N.azzini"]], 
-             N.saltelli = mat[[i, "N.saltelli"]],
-             N.vars = mat[[i, "N.vars"]],
+    model_Ti(k = mat.ranks[[i, "k"]], 
+             k_2 = mat.ranks[[i, "k_2"]], 
+             k_3 = mat.ranks[[i, "k_3"]],
+             epsilon = mat.ranks[[i, "epsilon"]],
+             phi = mat.ranks[[i, "phi"]],
+             delta = mat.ranks[[i, "delta"]],
+             tau = mat.ranks[[i, "tau"]],
+             N.all = mat.ranks[[i, "N.all"]], 
+             N.azzini = mat.ranks[[i, "N.azzini"]], 
+             N.saltelli = mat.ranks[[i, "N.saltelli"]],
+             N.vars = mat.ranks[[i, "N.vars"]],
              N.high = N.high, 
-             h = h)
+             h = h, 
+             ranks = TRUE)
   }
 
-# Stop parallel cluster
+
+## ----model_run_mae, cache=TRUE, dependson=c("define_model", "settings", "sample_matrix", "ti_indices", "vars_functions")----
+
+# RUN MODEL FOR MAE ----------------------------------------------------------------
+
+# Compute for MAE
+Y.mae <- foreach(i=1:nrow(mat.mae), 
+                   .packages = c("sensobol", "data.table", "pcaPP", 
+                                 "logitnorm", "dplyr")) %dopar%
+  {
+    model_Ti(k = mat.mae[[i, "k"]], 
+             k_2 = mat.mae[[i, "k_2"]], 
+             k_3 = mat.mae[[i, "k_3"]],
+             epsilon = mat.mae[[i, "epsilon"]],
+             phi = mat.mae[[i, "phi"]],
+             delta = mat.mae[[i, "delta"]],
+             tau = mat.mae[[i, "tau"]],
+             N.all = mat.mae[[i, "N.all"]], 
+             N.azzini = mat.mae[[i, "N.azzini"]], 
+             N.saltelli = mat.mae[[i, "N.saltelli"]],
+             N.vars = mat.mae[[i, "N.vars"]],
+             N.high = N.high, 
+             h = h, 
+             ranks = FALSE)
+  }
+
+
+## ----stop_parallel, dependson="model_run_ranks"---------------------------------------
+
+# STOP PARALLEL COMPUTING ----------------------------------------------------------
+
 stopCluster(cl)
 
 
-## ----arrange_output, cache=TRUE, dependson="model_run"--------------------------------------------------------------------------------
+## ----arrange_output, cache=TRUE, dependson=c("model_run_ranks", "model_run_mae")------
 
 # ARRANGE OUTPUT --------------------------------------------------------------------
 
-out_cor <- rbindlist(Y.ti, idcol = "row")
+out.ranks <- rbindlist(Y.ranks, idcol = "row")[, type:= "r"]
+out.mae <- rbindlist(Y.mae, idcol = "row")[, type:= "MAE"]
 
-mt.dt <- data.table(mat) %>%
-  .[, row:= 1:.N]
-
-full_output <- merge(mt.dt, out_cor) %>%
+full.output <- rbind(merge(mat.ranks[, row:= 1:.N], out.ranks), 
+                     merge(mat.mae[, row:= 1:.N], out.mae)) %>%
   .[, Nt:= ifelse(estimator == "azzini" | estimator == "owen", N.azzini * (2 * k + 2), 
                   ifelse(estimator == "vars", N.vars * (k * ((1 / h) -1) + 1), 
                          ifelse(estimator == "saltelli", N.saltelli * (k + 2), N.all * (k + 1))))] %>%
   .[, estimator:= ifelse(estimator %in% "azzini", "Azzini and Rosati", 
-                        ifelse(estimator %in% "homma", "Homma and Saltelli",
-                               ifelse(estimator %in% "monod", "Janon/Monod", 
-                                      ifelse(estimator %in% "jansen", "Jansen", 
-                                             ifelse(estimator %in% "glen", "Glen and Isaacs", 
-                                                           ifelse(estimator %in% "owen", "pseudo-Owen",  
-                                                                  ifelse(estimator %in% "saltelli", "Saltelli", "Razavi and Gupta")))))))]
+                         ifelse(estimator %in% "homma", "Homma and Saltelli",
+                                ifelse(estimator %in% "monod", "Janon/Monod", 
+                                       ifelse(estimator %in% "jansen", "Jansen", 
+                                              ifelse(estimator %in% "glen", "Glen and Isaacs", 
+                                                     ifelse(estimator %in% "owen", "pseudo-Owen",  
+                                                            ifelse(estimator %in% "saltelli", "Saltelli", "Razavi and Gupta")))))))]
 
-# Define A matrix 
-A <- full_output[,.SD[1:N], estimator]
+# Define A matrices
+A.ranks <- full.output[type == "r",.SD[1:N], estimator][, ratio:= Nt / k]
+A.mae <- full.output[type == "MAE",.SD[1:N], estimator][, ratio:= Nt / k]
+A.both <- rbind(A.ranks, A.mae)
 
 # Define matrix for total variance
-VY.dt <- full_output[row %in% c(1:N)][
-  , .(VY = 1 / N * sum((correlation - ((1 / N) * sum(correlation))) ^ 2)), 
+VY.dt <- full.output[row %in% c(1:N)][
+  , .(VY = 1 / N * sum((value - ((1 / N) * sum(value))) ^ 2)), 
   estimator]
 
 
-## ----export_output, cache=TRUE, dependson="arrange_output"----------------------------------------------------------------------------
+## ----export_output, cache=TRUE, dependson="arrange_output"----------------------------
 
 # EXPORT OUTPUT ---------------------------------------------------------------------
 
-fwrite(A, "A.csv")
-fwrite(full_output, "full_output.csv")
+fwrite(full.output, "full.output.csv")
+fwrite(A.ranks, "A.ranks.csv")
+fwrite(A.mae, "A.mae.csv")
 
 
-## ----plot_negative, cache=TRUE, dependson="arrange_output", fig.height=3, fig.width=3.5-----------------------------------------------
+## ----median_results, cache=TRUE, dependson="arrange_output"---------------------------
 
-# PLOT PROPORTION OF NEGATIVE VALUES ------------------------------------------------
+# QUANTILES ------------------------------------------------------------------------
 
-A[, sum(correlation < 0)/ .N, estimator] %>%
+tmp <- A.both[, .(median = median(value), 
+                  v.low.co = quantile(value, 0.025),
+                  low.ci = quantile(value, 0.25), 
+                  high.ci = quantile(value, 0.75), 
+                  v.high.ci = quantile(value, 0.975)), .(estimator, type)]
+
+tmp[tmp[, do.call(order, .SD), .SDcols = c("type", "median")]]
+
+
+## ----boxplots, cache=TRUE, dependson="arrange_output", fig.height=3.5, fig.width=5.2----
+
+# PLOT BOXPLOT ----------------------------------------------------------------------
+
+a <- ggplot(A.ranks, aes(x = reorder(estimator, -value), value)) +
+  geom_boxplot() + 
+  labs(x = "", 
+       y = expression(italic(r))) + 
+  theme_AP() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+b <- ggplot(A.mae, aes(x = reorder(estimator, value), value)) +
+  geom_boxplot() + 
+  labs(x = "", 
+       y = "MAE") + 
+  scale_y_log10(breaks = scales::trans_breaks("log10", function(x) 10^x),
+                labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  theme_AP() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+plot_grid(a, b, ncol = 2, labels = "auto")
+
+
+## ----scatterplot, cache=TRUE, dependson="arrange_output", fig.height=7.3, fig.width=4----
+
+# PLOT SCATTERPLOTS ----------------------------------------------------------------
+
+a <- ggplot(A.ranks, aes(Nt, k, color = value)) + 
+  geom_point(size = 0.1) + 
+  scale_colour_gradientn(colours = c("black", "purple", "red", "orange", "lightgreen"), 
+                         name = expression(italic(r))) +
+  scale_x_continuous(breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks = pretty_breaks(n = 3)) +
+  labs(x = expression(italic(N[t])), 
+       y = expression(italic(k))) + 
+  facet_wrap(~estimator,
+             ncol = 1) + 
+  theme_AP() + 
+  theme(legend.position = "top", 
+        strip.background = element_rect(fill = "white"))
+
+b <- ggplot(A.mae, aes(Nt, k, color = value)) + 
+  geom_point(size = 0.1) + 
+  scale_x_continuous(breaks = pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks = pretty_breaks(n = 3)) +
+  scale_colour_gradientn(colours = c("lightgreen", "yellow", "orange", "red", "purple", "black"), 
+                         name = "MAE", 
+                         trans = "log",
+                         breaks = c(0.001, 0.1, 10), 
+                         labels = c(0.001, 0.1, 10)) +
+  labs(x = expression(italic(N[t])), 
+       y = "") + 
+  facet_wrap(~estimator,
+             ncol = 1) + 
+  theme_AP() + 
+  theme(legend.position = "top", 
+        strip.background = element_rect(fill = "white"))
+
+plot_grid(a, b, ncol = 2, labels = "auto")
+
+
+
+## ----scatter_ratio, cache=TRUE, dependson="arrange_output", fig.height=7.3, fig.width=4----
+
+# PLOT SCATTERPLOTS WITH RATIOS ----------------------------------------------------
+
+a <- A.ranks[, ratio:= Nt / k] %>%
+  ggplot(., aes(ratio, value)) +
+  geom_point(alpha = 0.1, size = 0.2) +
+  facet_wrap(~estimator, 
+             ncol = 1) +
+  geom_smooth() +
+  labs(x = expression(italic(N[t]/k)), 
+       y = expression(italic(r))) +
+  scale_x_log10() +
+  scale_y_continuous(breaks = pretty_breaks(n = 3)) +
+  theme_AP() +
+  theme(strip.background = element_rect(fill = "white"))
+
+
+b <- A.mae[, ratio:= Nt / k] %>%
+  ggplot(., aes(ratio, value)) +
+  geom_point(alpha = 0.1, size = 0.2) +
+  facet_wrap(~estimator, 
+             ncol = 1) +
+  geom_smooth() +
+  labs(x = expression(italic(N[t]/k)), 
+       y = "MAE") +
+  scale_x_log10() +
+  scale_y_log10(breaks = scales::trans_breaks("log10", function(x) 10^x),
+                labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  theme_AP() +
+  theme(strip.background = element_rect(fill = "white"))
+
+plot_grid(a, b, ncol = 2, labels = "auto")
+
+
+## ----negative_proportion, cache=TRUE, dependson="arrange_output", fig.height=2.5, fig.width=3----
+
+# PLOT PROPORTION OF NEGATIVE R ----------------------------------------------------
+
+A.ranks[, sum(value < 0)/ .N, estimator] %>%
   ggplot(., aes(reorder(estimator, V1), V1)) +
   geom_bar(stat = "identity") + 
   coord_flip() + 
-  labs(y = expression(frac(1, N)~sum(italic(r)[j] < 0, j==1, N)), 
+  labs(y = expression(frac(1, N)~sum(italic(r)[v] < 0, v==1, N)), 
        x = "") +
   theme_AP()
 
 
-## ----map_negative, cache=TRUE, dependson="arrange_output", fig.height=4.5, fig.width=5.2----------------------------------------------
+## ----negative_r, cache=TRUE, dependson="arrange_output", fig.height=4, fig.width=5.2----
 
-# MAP VALUES WITH NEGATIVE R --------------------------------------------------------
+# MAP VALUES WITH NEGATIVE R -------------------------------------------------------
 
-index.neg <- A[, .I[correlation < 0]]
+index.neg <- A.ranks[, .I[value < 0]]
 
-A[index.neg] %>%
-  ggplot(., aes(Nt, k, color = correlation)) +
+A.ranks[index.neg] %>%
+  ggplot(., aes(Nt, k, color = value)) +
   geom_point(size = 0.5) +
   scale_colour_gradientn(colours = c("black", "purple", "red"), 
                          name = expression(italic(r))) +
@@ -835,478 +1110,10 @@ A[index.neg] %>%
         strip.background = element_rect(fill = "white"))
 
 
-## ----plot_full, cache=TRUE, dependson="arrange_output", fig.height=5.7, fig.width=5.3-------------------------------------------------
+## ----further_negative, cache=TRUE, dependson="arrange_output"-------------------------
 
-# PLOT OUTPUT -----------------------------------------------------------------------
+# MODEL TO RETRIEVE SIMULATIONS THAT YIELDED R < 0 ---------------------------------
 
-# Compute median and quantiles
-dt_median <- A[, .(median = median(correlation), 
-                                  low.ci = quantile(correlation, 0.25), 
-                                  high.ci = quantile(correlation, 0.75)), estimator]
-
-A[, .(median = median(correlation), 
-      low.ci = quantile(correlation, 0.25), 
-      high.ci = quantile(correlation, 0.75)), estimator][order(median)]
-
-a <- ggplot(A, aes(correlation)) +
-  geom_rect(data = dt_median,
-            aes(xmin = low.ci,
-                xmax = high.ci,
-                ymin = -Inf,
-                ymax = Inf),
-            fill = "blue",
-            color = "white",
-            alpha = 0.2,
-            inherit.aes = FALSE) +
-  geom_histogram() + 
-  geom_vline(data = dt_median, aes(xintercept = median), 
-             lty = 2, 
-             color = "red") +
-  facet_wrap(~estimator, 
-             ncol = 4) +
-  scale_x_continuous(breaks = pretty_breaks(n = 3)) +
-  scale_y_continuous(breaks = pretty_breaks(n = 3)) +
-  labs(x = expression(italic(r)), 
-       y = "Counts") + 
-  theme_AP() +
-  theme(strip.background = element_rect(fill = "white"))
-
-# Scatterplot
-b <- ggplot(A, aes(Nt, k, color = correlation)) + 
-  geom_point(size = 0.1) + 
-  scale_colour_gradientn(colours = c("black", "purple", "red", "orange", "lightgreen"), 
-                         name = expression(italic(r))) +
-  scale_x_continuous(breaks = pretty_breaks(n = 3)) +
-  scale_y_continuous(breaks = pretty_breaks(n = 3)) +
-  labs(x = expression(italic(N[t])), 
-       y = expression(italic(k))) + 
-  facet_wrap(~estimator,
-             ncol = 4) + 
-  theme_AP() + 
-  theme(legend.position = "top", 
-        strip.background = element_rect(fill = "white"))
-
-# Ratio
-c <- A[, ratio:= Nt / k] %>%
-  ggplot(., aes(ratio, correlation)) +
-  geom_point(alpha = 0.1, size = 0.2) +
-  facet_wrap(~estimator, 
-             ncol = 4) +
-  geom_smooth() +
-  labs(x = expression(italic(N[t]/k)), 
-       y = expression(italic(r))) +
-  scale_x_log10() +
-  scale_y_continuous(breaks = pretty_breaks(n = 3)) +
-  theme_AP() +
-  theme(strip.background = element_rect(fill = "white"))
-
-# Merge plot
-plot_grid(a, b, ncol = 1, labels = "auto", rel_heights = c(0.85, 1))
-
-
-## ----plot_ratio, cache=TRUE, dependson="plot_full", fig.height=4, fig.width=5.2-------------------------------------------------------
-
-# DISPLAY THE RATIO NT/K FOR EACH SIMULATION AND ESTIMATOR -------------------------
-
-c
-
-
-## ----plot_boxplot, cache=TRUE, dependson="arrange_output", fig.width=4, fig.height=3--------------------------------------------------
-
-# PLOT BOXPLOT ----------------------------------------------------------------------
-
-ggplot(A, aes(estimator, correlation)) +
-  geom_boxplot() + 
-  labs(x = "", 
-       y = expression(italic(r))) + 
-  theme_AP() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-
-## ----plot_medians, cache=TRUE, dependson="arrange_output", fig.width=4.5, fig.height=2.8----------------------------------------------
-
-# PLOT MEDIANS ----------------------------------------------------------------------
-
-vv <- seq(5, 100, 5)
-
-dt <- lapply(vv, function(x) A[k <= x, median(correlation), estimator])
-
-names(dt) <- vv
-
-rbindlist(dt, idcol = "k") %>%
-  .[, k:= as.numeric(k)] %>%
-  ggplot(., aes(k, V1, color = estimator)) +
-  scale_color_discrete(name = "Estimator") +
-  labs(x = expression(italic(k)), 
-       y = expression(median(italic(r)))) +
-  geom_line() + 
-  theme_AP()
-
-# Median Nt/k
-dt.tmp <- A[, .(min = min(ratio), max = max(ratio))]
-
-v <-  seq(0, ceiling(dt.tmp$max), 20)
-a <- c(v[1], rep(v[-c(1, length(v))], each = 2), v[length(v)])
-indices <- matrix(a, ncol = 2 ,byrow = TRUE)
-
-out <- list()
-for(i in 1:nrow(indices)) {
-  out[[i]] <- A[ratio > indices[i, 1] & ratio < indices[i, 2]]
-}
-
-names(out) <- rowmeans(indices)
-
-# Plot
-lapply(out, function(x) x[, median(correlation, na.rm = TRUE), estimator]) %>%
-  rbindlist(., idcol = "N") %>%
-  .[, N:= as.numeric(N)] %>%
-  ggplot(., aes(N, V1, group = estimator, color = estimator)) +
-  geom_line() + 
-  labs(x = expression(italic(N[t]/k)),
-       y = expression(median(italic(r)))) +
-  scale_color_discrete(name = "Estimator") +
-  scale_x_log10() +
-  theme_AP()
-
-
-## ----plot_n_ratio, cache=TRUE, dependson=c("arrange_output", "plot_medians"), fig.height=4, fig.width=5-------------------------------
-
-# PLOT NUMBER OF SIMULATIONS AGAINST NT/K RATIO ---------------------------------
-
-rbindlist(out, idcol = "samples")[, .N, .(estimator, samples)] %>%
-  .[, samples:= factor(samples, levels = rowmeans(indices))] %>%
-  ggplot(., aes(samples, N, fill = estimator)) +
-  scale_y_log10() +
-  scale_fill_discrete(name = "Estimator") +
-  labs(x = "Mean Nt/k ratio", 
-       y = "Nº of simulations") +
-  geom_bar(stat = "identity", 
-           position = position_dodge(0.6)) +
-  theme_AP() + 
-  theme(legend.position = "top") +
-  guides(fill = guide_legend(nrow = 4, byrow = TRUE))
-
-
-## ----scatter_sensitivity, cache=TRUE, dependson="arrange_output", fig.height=4.7, fig.width=4.7---------------------------------------
-
-# SCATTERPLOTS OF MODEL OUTPUT AGAINST PARAMETERS -----------------------------------
-
-A <- setnames(A, c("N_t", "k_2", "k_3"), c("N[t]", "k[2]", "k[3]"))
-
-scatter.dt <- melt(A, measure.vars = c("k[2]", "k[3]", 
-                                       "epsilon", "phi", "delta", "tau")) %>%
-  split(., .$estimator)
-
-gg <- list()
-for(i in names(scatter.dt)) {
-  gg[[i]] <- ggplot(scatter.dt[[i]], aes(value, correlation)) +
-    geom_point(alpha = 0.1, size = 0.3) +
-    facet_wrap(~ variable, 
-               scales = "free_x", 
-               labeller = label_parsed,
-               ncol = 3) +
-    scale_color_manual(values = c("#00BFC4", "#F8766D")) +
-    scale_x_continuous(breaks = pretty_breaks(n = 3)) +
-    theme_AP() +
-    labs(x = "", y = expression(italic(r))) +
-    theme(strip.background = element_rect(fill = "white")) +
-    ggtitle(names(scatter.dt[i]))
-}
-
-gg
-
-
-## ----sensitivity_analysis, cache=TRUE, dependson=c("arrange_output", "sobol_indices")-------------------------------------------------
-
-# SENSITIVITY ANALYSIS --------------------------------------------------------------
-
-# Show rows with NA
-full_output[is.na(correlation), ]
-
-# Substitute NA by 0
-full_output <- full_output[, correlation:= ifelse(is.na(correlation) == TRUE, 0, correlation)]
-
-# New vector of parameters to plot better
-params.new <- c("k[2]", "k[3]", "epsilon", "phi", "delta", "tau") 
-
-# Compute Sobol' indices except for the cluster Nt,k
-indices <- full_output[!row %in% mat[, tail(.I, N)]][
-  , sobol_indices(Y = correlation, 
-                  N = N,
-                  params = params.new,
-                  first = "jansen",
-                  boot = TRUE,
-                  R = R,
-                  order = order), 
-  estimator]
-
-# Compute Sobol' indices for cluster
-index.clusters <- mat[, tail(.I, 3 * N)]
-
-indicesC <- rbind(full_output[row %in% 1:(2 * N)], full_output[row %in% index.clusters])[
-  , sobol_indices(Y = correlation, 
-                  N = N,
-                  params = c("N[t]~k", "f(x)", "delta~tau"),
-                  first = "jansen",
-                  boot = TRUE,
-                  R = R,
-                  order = "first"), 
-  estimator]
-
-# Final
-indices <- rbind(indices, indicesC[parameters == "N[t]~k"]) %>%
-  merge(., VY.dt, by = "estimator") %>%
-  .[, unnormalized:= original * VY]
-
-# Export
-fwrite(indices, "indices.csv")
-fwrite(indicesC, "indicesC.csv")
-
-
-## ----plot_sobol_indices, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=7.2, fig.width=5.4------------
-
-# PLOT SOBOL' INDICES ----------------------------------------------------------------
-
-indices.tmp <- copy(indices)
-indicesC.tmp <- copy(indicesC)
-
-colsDelete <- c("VY", "unnormalized")
-indices.tmp <- indices.tmp[, (colsDelete):= NULL] %>%
-  .[, type:= "Individual"]
-
-indicesC.tmp <- indicesC.tmp[, type:= "Clustered"] %>%
-  .[, type:= factor(type, levels = c("Individual", "Clustered"))]
-
-rbind(indices.tmp, indicesC.tmp) %>%
-  .[sensitivity == "Si" | sensitivity == "Ti"] %>%
-  ggplot(., aes(parameters, original, fill = sensitivity)) +
-  geom_bar(stat = "identity", 
-           position = position_dodge(0.6), 
-           color = "black") +
-  geom_errorbar(aes(ymin = low.ci, 
-                    ymax = high.ci), 
-                position = position_dodge(0.6)) +
-  scale_x_discrete(labels = ggplot2:::parse_safe) +
-  scale_y_continuous(breaks = pretty_breaks(n = 3)) +
-  facet_grid(estimator~type, 
-             scales = "free_x",
-             space = "free_x") +
-  labs(x = "", 
-       y = "Sobol' index") +
-  scale_fill_discrete(name = "Sobol' indices", 
-                      labels = c(expression(S[italic(i)]), 
-                                 expression(T[italic(i)]))) +
-  theme_AP() +
-  theme(legend.position = "right", 
-        strip.text.y = element_text(size = 6), 
-        strip.background = element_rect(fill = "white"))
-
-
-## ----plot_sobol_indices_unnorm, cache=TRUE, dependson=c("sensitivity_analysis", "sobol_indices_f"), fig.height=6.5, fig.width=5.4-----
-
-# PLOT UNNORMALIZED SOBOL' INDICES --------------------------------------------
-
-indicesC <- indicesC %>%
-  merge(., VY.dt, by = "estimator") %>%
-  .[, unnormalized:= original * VY]
-
-all.indicesC <- list(indices, indicesC)
-
-hh <- list()
-for(i in seq_along(all.indicesC)) {
-  hh[[i]] <- ggplot(all.indicesC[[i]][sensitivity == "Si" |
-                                       sensitivity == "Ti"], 
-                    aes(parameters, unnormalized, fill = sensitivity)) +
-    geom_bar(stat = "identity", 
-             position = position_dodge(0.6), 
-             color = "black") +
-    scale_x_discrete(labels = ggplot2:::parse_safe) +
-    scale_y_continuous(breaks = pretty_breaks(n = 3)) +
-    facet_wrap(~estimator, 
-               ncol = 4) +
-    labs(x = "", 
-         y = expression(T[italic(i)] * V(Y))) +
-    scale_fill_discrete(name = "Sobol' indices", 
-                        labels = c(expression(S[italic(i)]), 
-                                   expression(T[italic(i)]))) +
-    theme_AP() +
-    theme(legend.position = "none", 
-          strip.background = element_rect(fill = "white"))
-}
-
-# Get legend
-legend <- get_legend(hh[[1]] + theme(legend.position = "top"))
-
-top <- plot_grid(hh[[1]], hh[[2]] + theme(legend.position = "none"), 
-                 align = "hv", labels = "auto", ncol = 1)
-
-plot_grid(legend, top, ncol = 1, rel_heights = c(0.1, 1))
-
-
-## ----sum_si, cache=TRUE, dependson="sensitivity_analysis", fig.height=3, fig.width=3.5------------------------------------------------
-
-# SUM OF FIRST-ORDER INDICES --------------------------------------------------------
-
-indices[sensitivity == "Si", sum(original), estimator]
-
-# Plot
-merge(indices[sensitivity == "Si", sum(original), estimator], 
-      dt_median, by = "estimator") %>%
-  ggplot(., aes(V1, median)) +
-  geom_point() +
-  labs(x = expression(sum(S[i], i==1, k)), 
-       y = expression(median(italic(r)))) +
-  geom_text_repel(aes(label = estimator)) + 
-  theme_AP()
-
-
-## ----second_order, cache=TRUE, dependson=c("sensitivity_analysis", "plot_sobol_indices"), fig.height=2.5, fig.width=4.7---------------
-
-# PLOT SECOND-ORDER EFFECTS ------------------------------------------------------------
-
-indices[sensitivity == "Sij"] %>%
-  .[low.ci > 0] %>%
-  .[, sensitivity:= ifelse(sensitivity %in% "Sij", "S[ij]", sensitivity)] %>%
-  .[, parameters:= gsub(parameters,
-                        pattern = ".",
-                        replacement = "~",
-                        fixed = TRUE)] %>%
-  ggplot(., aes(reorder(parameters, original), original, color = estimator)) +
-  geom_point(position = position_dodge(0.6)) +
-  geom_errorbar(aes(ymax = high.ci, ymin = low.ci), 
-                position = position_dodge(0.6)) + 
-  geom_hline(yintercept = 0, 
-             lty = 2, 
-             color = "red") +
-  facet_grid(~sensitivity, 
-             scales = "free_x", 
-             space = "free_x", 
-             labeller = label_parsed) +
-  scale_x_discrete(labels = ggplot2:::parse_safe) +
-  scale_color_discrete(name = "Estimator") +
-  labs(x = "", 
-       y = "Sobol' index") +
-  theme_AP() +
-  theme(strip.background = element_rect(fill = "white"))
-
-
-## ----export_indices, cache=TRUE, dependson="sensitivity_analysis"---------------------------------------------------------------------
-
-# EXPORT SOBOL' INDICES ---------------------------------------------------------------
-
-fwrite(dt_median, "dt_median.csv")
-
-
-
-## ----explorativity, cache=TRUE--------------------------------------------------------------------------------------------------------
-
-# CALCULATE EXPLORATIVITY AND ECONOMY ----------------------------------------------
-
-# Create functions
-economy_fun <- function(n, k, h) {
-  Owen <- k / (2 * (k + 1))
-  Razavi <- ((1 - h) * 2 * k) / (h * ( 1 + ( 1 / h - 1) * k))
-  Azzini <- k / (k + 1)
-  Glen <- k / (k + 1)
-  Saltelli <- k / (k + 2)
-  Homma <- k / (k + 1)
-  Jansen <- k / (k + 1)
-  Janon <- k / (k + 1)
-  eff <- c(Owen, Razavi, Azzini, Glen, Saltelli, 
-           Homma, Jansen, Janon)
-  return(eff)
-}
-
-explorativity_fun <- function(n, k, h) {
-  Owen <- 3 / ( 2 * (1 + k))
-  Razavi <- 1 / ( h * ( 1 + ( 1 / h - 1) * k))
-  Azzini <- 1 / (k + 1)
-  Glen <- 2 / (k + 1)
-  Saltelli <- 2 / (k + 1)
-  Homma <- 2 / (k + 1)
-  Jansen <- 2 / (k + 1)
-  Janon <- 2 / (k + 1)
-  ec <- c(Owen, Razavi, Azzini, Glen, 
-          Saltelli, Homma, Jansen, Janon)
-  return(ec)
-}
-
-full_fun <- function(n, k, h) {
-  arrangement <- data.table(c("pseudo-Owen", 
-                              "Razavi and Gupta", 
-                              "Azzini and Rosati", 
-                              "Glen and Isaacs", 
-                              "Saltelli", 
-                              "Homma and Saltelli", 
-                              "Jansen", 
-                              "Janon/Monod"))
-  ec <- economy_fun(n, k, h)
-  ex <- explorativity_fun(n, k, h)
-  out <- data.table(cbind(ec, ex))
-  final <- cbind(arrangement, out)
-  setnames(final, "V1", "Arrangement")
-  return(final)
-}
-
-vec.k <- c(10, 100, 1000)
-data.ex <- lapply(vec.k, function(k) full_fun(n = 4, k = k, h = 0.2))
-names(data.ex) <- vec.k
-
-plot.data.ex <- rbindlist(data.ex, idcol = "k") %>%
-  .[, k:= as.numeric(k)]
-
-
-## ----plot_explorativity, cache=TRUE, dependson="explorativity", fig.width=4.7, fig.height=2.8-----------------------------------------
-
-# PLOT EXPLORATIVITY ------------------------------------------------------------
-
-ggplot(plot.data.ex[k == 10], aes(ec, ex)) +
-  geom_point() +
-  labs(x = "Economy", 
-       y = "Explorativity") +
-  geom_text_repel(aes(label = Arrangement)) + 
-  theme_AP()
-
-
-## ----plot_explorativity2, cache=TRUE, dependson="explorativity", fig.width=4.7, fig.height=7------------------------------------------
-
-# PLOT EXPLORATIVITY ------------------------------------------------------------
-
-plot.data.ex[, k:= paste("k = ", k, sep = "")] %>%
-  ggplot(., aes(ec, ex)) +
-  geom_point() +
-  labs(x = "Economy", 
-       y = "Explorativity") +
-  geom_text_repel(aes(label = Arrangement)) + 
-  facet_wrap(~k, ncol = 1) +
-  scale_y_log10() +
-  theme_AP() +
-  theme(strip.background = element_rect(fill = "white"))
-
-
-## ----session_information--------------------------------------------------------------------------------------------------------------
-
-# SESSION INFORMATION --------------------------------------------------------------
-
-sessionInfo()
-
-## Return the machine CPU
-cat("Machine:     "); print(get_cpu()$model_name)
-
-## Return number of true cores
-cat("Num cores:   "); print(detectCores(logical = FALSE))
-
-## Return number of threads
-cat("Num threads: "); print(detectCores(logical = TRUE))
-
-## Return the machine RAM
-cat("RAM:         "); print (get_ram()); cat("\n")
-
-
-## ----double_check_performance, echo = FALSE, cache=TRUE-------------------------------------------------------------------------------
-
-# Modify the model to yield the Ti indices of the
-# metafunction as a model output -
 model_Ti2 <- function(k, N.all, N.azzini, N.saltelli, N.vars, h, 
                       N.high, k_2, k_3, epsilon, phi, delta, tau) {
   ind <- list()
@@ -1396,9 +1203,11 @@ model_Ti2 <- function(k, N.all, N.azzini, N.saltelli, N.vars, h,
   return(out.wide)
 }
 
-# Extract only the parameters of the first simulation
-selected_row <- 782
-prove <- full_output[row == selected_row][1]
+A.ranks <- A.ranks[, ID:= .I]
+rowsToExtract <- A.ranks[value < 0  & estimator %in% c("Saltelli", "pseudo-Owen", "Homma and Saltelli", 
+                                      "Glen and Isaacs")][, ID]
+
+prove <- A.ranks[ID %in% rowsToExtract]
 
 # RUN MODEL ---------------------------------------------------------------------------
 
@@ -1408,86 +1217,307 @@ registerDoParallel(cl)
 
 # Compute
 Y.ti2 <- foreach(i=1:nrow(prove), 
-                .packages = c("sensobol", "data.table", "pcaPP", 
-                              "logitnorm", "dplyr")) %dopar%
+                 .packages = c("sensobol", "data.table", "pcaPP", 
+                               "logitnorm", "dplyr")) %dopar%
   {
     model_Ti2(k = prove[[i, "k"]], 
-             k_2 = prove[[i, "k_2"]], 
-             k_3 = prove[[i, "k_3"]],
-             epsilon = prove[[i, "epsilon"]],
-             phi = prove[[i, "phi"]],
-             delta = prove[[i, "delta"]],
-             tau = prove[[i, "tau"]],
-             N.all = prove[[i, "N.all"]], 
-             N.azzini = prove[[i, "N.azzini"]], 
-             N.saltelli = prove[[i, "N.saltelli"]],
-             N.vars = prove[[i, "N.vars"]],
-             N.high = N.high, 
-             h = h)
+              k_2 = prove[[i, "k_2"]], 
+              k_3 = prove[[i, "k_3"]],
+              epsilon = prove[[i, "epsilon"]],
+              phi = prove[[i, "phi"]],
+              delta = prove[[i, "delta"]],
+              tau = prove[[i, "tau"]],
+              N.all = prove[[i, "N.all"]], 
+              N.azzini = prove[[i, "N.azzini"]], 
+              N.saltelli = prove[[i, "N.saltelli"]],
+              N.vars = prove[[i, "N.vars"]],
+              N.high = N.high, 
+              h = h)
   }
 
 # Stop parallel cluster
 stopCluster(cl)
 
+
+## ----plot_further_negative, cache=TRUE, dependson="further_negative", fig.height=4, fig.width=4.5----
+
+# PLOT DISTRIBUTION OF R<0 AND R>1 -------------------------------------------------
+
 # Arrange output
-out <- Y.ti2[[1]]
-out <- out[, parameters:= as.numeric(gsub("[a-zA-Z]","",parameters))] %>%
-  .[, estimator:= ifelse(estimator %in% "azzini", "Azzini and Rosati", 
-                         ifelse(estimator %in% "homma", "Homma and Saltelli",
-                                ifelse(estimator %in% "monod", "Janon/Monod", 
-                                       ifelse(estimator %in% "jansen", "Jansen", 
-                                              ifelse(estimator %in% "glen", "Glen and Isaacs", 
-                                                     ifelse(estimator %in% "owen", "pseudo-Owen",  
-                                                            ifelse(estimator %in% "saltelli", "Saltelli", "Razavi and Gupta")))))))] %>%
-  .[, Change:= ifelse(n < 0, T, F)]
+names(Y.ti2) <- rowsToExtract
+
+out.neg <- rbindlist(Y.ti2, idcol = "ID") %>%
+  .[, ID:= as.numeric(ID)]
+
+out.dt <- out.neg[, estimator:= ifelse(estimator %in% "azzini", "Azzini and Rosati", 
+                                       ifelse(estimator %in% "homma", "Homma and Saltelli",
+                                              ifelse(estimator %in% "monod", "Janon/Monod", 
+                                                     ifelse(estimator %in% "jansen", "Jansen", 
+                                                            ifelse(estimator %in% "glen", "Glen and Isaacs", 
+                                                                   ifelse(estimator %in% "owen", "pseudo-Owen",  
+                                                                          ifelse(estimator %in% "saltelli", "Saltelli", "Razavi and Gupta")))))))]
 
 
-## ----plot_double_check, dependson="double_check_performance", fig.height=8, fig.width=5, echo=FALSE, cache=TRUE-----------------------
 
-corr.dt <- full_output[row == selected_row][, .(estimator, correlation)]
+dd <- out.dt[, .(prop.negative = sum(n < 0) / .N, 
+                 prop.above.one = sum(n > 1) / .N), .(estimator, ID)] 
 
-# Plot n -----
-a <- ggplot(out, aes(parameters, n, fill = Change)) +
-  geom_bar(stat = "identity", 
-           position = position_dodge(0.7), 
-           color = "black") +
-  geom_text(data = corr.dt, aes(x = 16.5, y = 0.2, 
-                                label = paste0("r = ", round(correlation, 2))), 
-            size = 3, 
-            show.legend = FALSE, 
-            inherit.aes = FALSE) +
-  facet_wrap(~estimator, ncol = 1,
-             scales = "free_y") +
-  scale_y_continuous(breaks = pretty_breaks(n = 2)) +
-  scale_fill_manual(values = c('#595959', 'red')) +
-  labs(x = "Parameters",
-       y = expression(T[italic(i)])) +
+merge(dd, prove, by = c("ID", "estimator")) %>%
+  ggplot(., aes(prop.negative, prop.above.one, color = value)) +
+  geom_point() +
+  scale_colour_gradientn(colours = c("black", "purple", "red"), 
+                         name = expression(italic(r))) +
+  labs(y = expression(paste("Proportion of ", T[i] > 1)), 
+       x = expression(paste("Proportion of ", T[i] < 0))) +
+  facet_wrap(~estimator) +
   theme_AP() +
-  theme(strip.background = element_rect(fill = "white")) +
-  guides(fill = FALSE)
-a
+  theme(legend.position = "top", 
+        strip.background = element_rect(fill = "white"))
 
 
-## ----plot_double_check_N, dependson="double_check_performance", cache= TRUE, fig.height=1.5, fig.width=5, echo=FALSE------------------
+## ----median_plot, cache=TRUE, dependson="arrange_output", fig.height=3.5, fig.width=5.2----
 
-# Plot  N ------
-b <- out[estimator == "Jansen"] %>%
-ggplot(., aes(parameters, N)) +
-  geom_bar(stat = "identity", 
-           position = position_dodge(0.7), 
-           color = "black") +
-  scale_y_continuous(breaks = pretty_breaks(n = 2)) +
-  labs(x = "Parameters",
-       y = expression(T[italic(i)])) +
+# PLOT MEDIANS ----------------------------------------------------------------------
+
+# FOR RANKS-----------
+vv <- seq(5, 100, 5)
+dt <- lapply(vv, function(x) A.ranks[k <= x, median(value), estimator])
+names(dt) <- vv
+
+rbindlist(dt, idcol = "k") %>%
+  .[, k:= as.numeric(k)] %>%
+  ggplot(., aes(k, V1, color = estimator)) +
+  scale_color_discrete(name = "Estimator") +
+  labs(x = expression(italic(k)), 
+       y = expression(median(italic(r)))) +
+  geom_line() + 
   theme_AP() +
   theme(strip.background = element_rect(fill = "white"))
 
-b
+# Median Nt/k
+dt.tmp <- A.ranks[, .(min = min(ratio), max = max(ratio))]
+
+v <-  seq(0, ceiling(dt.tmp$max), 20)
+a <- c(v[1], rep(v[-c(1, length(v))], each = 2), v[length(v)])
+indices <- matrix(a, ncol = 2 ,byrow = TRUE)
+
+out.ranks <- list()
+for(i in 1:nrow(indices)) {
+  out.ranks[[i]] <- A.ranks[ratio > indices[i, 1] & ratio < indices[i, 2]]
+}
+
+names(out.ranks) <- rowmeans(indices)
+
+# Plot
+median.ranks <- lapply(out.ranks, function(x) x[, median(value, na.rm = TRUE), estimator]) %>%
+  rbindlist(., idcol = "N") %>%
+  .[, N:= as.numeric(N)] %>%
+  .[, type:= "r"]
+
+# FOR MAE-----------
+dt <- lapply(vv, function(x) A.mae[k <= x, median(value), estimator])
+names(dt) <- vv
+
+rbindlist(dt, idcol = "k") %>%
+  .[, k:= as.numeric(k)] %>%
+  ggplot(., aes(k, V1, color = estimator)) +
+  scale_color_discrete(name = "Estimator") +
+  labs(x = expression(italic(k)), 
+       y = expression(median(italic(r)))) +
+  geom_line() + 
+  theme_AP()
+
+# Median Nt/k
+dt.tmp <- A.mae[, .(min = min(ratio), max = max(ratio))]
+
+v <-  seq(0, ceiling(dt.tmp$max), 20)
+a <- c(v[1], rep(v[-c(1, length(v))], each = 2), v[length(v)])
+indices <- matrix(a, ncol = 2 ,byrow = TRUE)
+
+out.mae <- list()
+for(i in 1:nrow(indices)) {
+  out.mae[[i]] <- A.mae[ratio > indices[i, 1] & ratio < indices[i, 2]]
+}
+
+names(out.mae) <- rowmeans(indices)
+
+# Plot
+median.mae <- lapply(out.mae, function(x) x[, median(value, na.rm = TRUE), estimator]) %>%
+  rbindlist(., idcol = "N") %>%
+  .[, N:= as.numeric(N)] %>%
+  .[, type:= "MAE"]
+
+# PLOT ALL
+
+a <- ggplot(median.ranks, aes(N, V1, group = estimator, color = estimator)) +
+  geom_line() + 
+  labs(x = expression(italic(N[t]/k)),
+       y = expression(median(italic(r)))) +
+  scale_color_discrete(name = "Estimator") +
+  scale_x_log10() +
+  theme_AP() +
+  theme(legend.position = "none")
 
 
-## ----plot_all_check, dependson=c("plot_double_check_N", "plot_double_check"), cache=TRUE, fig.height=7, fig.width=5, echo=FALSE-------
+b <- ggplot(median.mae, aes(N, V1, group = estimator, color = estimator)) +
+  geom_line() + 
+  labs(x = expression(italic(N[t]/k)),
+       y = "median(MAE)") +
+  scale_color_discrete(name = "Estimator") +
+  scale_x_log10() +
+  scale_y_log10(breaks = scales::trans_breaks("log10", function(x) 10^x),
+                labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  theme_AP() +
+  theme(legend.position = "none")
 
-plot_grid(a + labs(x = "", y = expression(T[italic(i)])), 
-          b, ncol = 1, labels = "auto", rel_heights = c(1, 0.18), align = "hv")
+legend <- get_legend(a + theme(legend.position = "top") +
+                       guides(color = guide_legend(nrow = 3, byrow = TRUE)))
+bottom <- plot_grid(a, b, ncol = 2, labels = "auto")
+plot_grid(legend, bottom, ncol = 1, rel_heights = c(0.3, 0.7))
 
+
+## ----n_ntk_ratio, cache=TRUE, dependson="median_plot", fig.height=4, fig.width=5------
+
+# PLOT MEAN NT/K RATIO AS A FUNCTION OF Nº SIMULATIONS -----------------------------
+
+rbindlist(out.ranks, idcol = "samples")[, .N, .(estimator, samples)] %>%
+  .[, samples:= factor(samples, levels = rowmeans(indices))] %>%
+  ggplot(., aes(samples, N, fill = estimator)) +
+  scale_y_log10() +
+  scale_fill_discrete(name = "Estimator") +
+  labs(x = "Mean Nt/k ratio",
+       y = "Nº of simulations") +
+  geom_bar(stat = "identity",
+           position = position_dodge(0.6)) +
+  theme_AP() +
+  theme(legend.position = "top") +
+  guides(fill = guide_legend(nrow = 4, byrow = TRUE))
+
+
+## ----scatterplots_sens, cache=TRUE, dependson="arrange_output", fig.height=5, fig.width=4.5----
+
+# SCATTERPLOTS OF MODEL OUTPUT AGAINST PARAMETERS -----------------------------------
+
+A.ranks <- setnames(A.ranks, c("N_t", "k_2", "k_3"), c("N[t]", "k[2]", "k[3]"))
+A.mae <- setnames(A.mae, c("N_t", "k_2", "k_3"), c("N[t]", "k[2]", "k[3]"))
+
+scatter.ranks <- melt(A.ranks, measure.vars = c("k[2]", "k[3]", "epsilon", "phi", "delta", "tau"), 
+                      value.name = "value.parameters") %>%
+  split(., .$estimator)
+
+scatter.mae <- melt(A.mae, measure.vars = c("k[2]", "k[3]", "epsilon", "phi", "delta", "tau"), 
+                    value.name = "value.parameters") %>%
+  split(., .$estimator)
+
+gg.ranks <- list()
+for(i in names(scatter.ranks)) {
+  gg.ranks[[i]] <- ggplot(scatter.ranks[[i]], aes(value.parameters, value)) +
+    geom_point(alpha = 0.1, size = 0.3) +
+    facet_wrap(~ variable, 
+               scales = "free_x", 
+               labeller = label_parsed,
+               ncol = 3) +
+    scale_color_manual(values = c("#00BFC4", "#F8766D")) +
+    scale_x_continuous(breaks = pretty_breaks(n = 3)) +
+    stat_summary_bin(fun = "mean", geom = "point", 
+                     colour = "red", size = 0.7) +
+    theme_AP() +
+    labs(x = "Value", y = expression(italic(r))) +
+    theme(strip.background = element_rect(fill = "white")) +
+    ggtitle(names(scatter.ranks[i]))
+}
+
+gg.mae <- list()
+for(i in names(scatter.mae)) {
+  gg.mae[[i]] <- ggplot(scatter.mae[[i]], aes(value.parameters, value)) +
+    geom_point(alpha = 0.1, size = 0.3) +
+    facet_wrap(~ variable, 
+               scales = "free_x", 
+               labeller = label_parsed,
+               ncol = 3) +
+    scale_color_manual(values = c("#00BFC4", "#F8766D")) +
+    scale_x_continuous(breaks = pretty_breaks(n = 3)) +
+    stat_summary_bin(fun = "mean", geom = "point", 
+                     colour = "red", size = 0.7) +
+    theme_AP() +
+    scale_y_log10() +
+    labs(x = "Value", y = "MAE") +
+    theme(strip.background = element_rect(fill = "white")) +
+    ggtitle(names(scatter.mae[i]))
+}
+
+gg.ranks
+gg.mae
+
+
+## ---- sobol_indices, cache=TRUE, dependson="arrange_output"---------------------------
+
+# SOBOL' INDICES -------------------------------------------------------------------
+
+out <- list()
+for(i in c("r", "MAE")) {
+  if(i == "r") {
+    params <- c("k[2]", "k[3]", "epsilon", "phi", "delta", 
+                    "tau", "N[t]~k", "f(x)", "delta~tau") 
+  } else {
+    params <- c("k[2]", "k[3]", "epsilon", "phi", 
+                    "tau", "N[t]~k", "f(x)")
+  }
+  out[[i]] <- full.output[, sobol_indices(Y = value, 
+                                          N = N,
+                                          params = params,
+                                          first = "jansen",
+                                          boot = TRUE,
+                                          R = R,
+                                          order = order), 
+                          estimator]
+}
+
+ind <- rbindlist(out, idcol = "type")
+ind <- ind[, group:= ifelse(parameters %in% c("N[t]~k", "f(x)", "delta~tau"), 
+                            "Cluster", "Individual")] %>%
+  .[, type:= factor(type, levels = c("r", "MAE"))]
+
+
+## ----plot_sobol, cache=TRUE, dependson="sobol_indices"--------------------------------
+
+# PLOT SOBOL' INDICES --------------------------------------------------------------
+
+a <- lapply(c("Individual", "Cluster"), function(x)
+  plot_sobol(ind[group == x]) +
+    facet_grid(estimator~type, 
+               space = "free_x", 
+               scales = "free_x") +
+    scale_x_discrete(labels = ggplot2:::parse_safe) +
+    theme(strip.text.y = element_text(size = 6), 
+          legend.position = "none"))
+
+
+## ----eff_plot_sobol, cache=TRUE, dependson="plot_sobol", fig.height=8, fig.width=5----
+
+# PLOT -----------------------------------------------------------------------------
+
+legend <- get_legend(a[[1]] + theme(legend.position = "top"))
+bottom <- plot_grid(a[[1]], a[[2]] + labs(x = "", y = ""), labels = "auto", 
+                    rel_widths = c(0.6, 0.4))
+plot_grid(legend, bottom, ncol = 1, rel_heights = c(0.1, 0.9))
+
+
+## ----session_information--------------------------------------------------------------
+
+# SESSION INFORMATION --------------------------------------------------------------
+
+sessionInfo()
+
+## Return the machine CPU
+cat("Machine:     "); print(get_cpu()$model_name)
+
+## Return number of true cores
+cat("Num cores:   "); print(detectCores(logical = FALSE))
+
+## Return number of threads
+cat("Num threads: "); print(detectCores(logical = TRUE))
+
+## Return the machine RAM
+cat("RAM:         "); print (get_ram()); cat("\n")
 
