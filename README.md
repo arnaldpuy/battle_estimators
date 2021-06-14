@@ -1,7 +1,7 @@
 
 # The battle of total-order sensitivity estimators
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4276948.svg)](https://doi.org/10.5281/zenodo.4276948)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4946559.svg)](https://doi.org/10.5281/zenodo.4946559)
 
 Arnald Puy, William Becker, Samuele Lo Piano, Andrea Saltelli
 
