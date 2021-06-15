@@ -1521,3 +1521,5 @@ cat("Num threads: "); print(detectCores(logical = TRUE))
 ## Return the machine RAM
 cat("RAM:         "); print (get_ram()); cat("\n")
 
+
+

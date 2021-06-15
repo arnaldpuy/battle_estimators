@@ -1,5 +1,5 @@
 
-# The battle of total-order sensitivity estimators
+# A comprehensive comparison of total-order estimators for global sensitivity analysis
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4946559.svg)](https://doi.org/10.5281/zenodo.4946559)
 
